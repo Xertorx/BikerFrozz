@@ -94,8 +94,11 @@ export async function createServerApp() {
     initDb();
   }
 
+  // API Router with dual prefix support for Vercel vs Local
+  const api = express.Router();
+
   // Health check
-  app.get('/api/health', async (req, res) => {
+  api.get('/health', async (req, res) => {
     try {
       const client = await pool.connect();
       await client.query('SELECT 1');
@@ -107,7 +110,7 @@ export async function createServerApp() {
   });
 
   // Auth
-  app.post('/api/login', async (req, res) => {
+  api.post('/login', async (req, res) => {
     const { username, password } = req.body;
     if (!process.env.DATABASE_URL) {
       return res.status(503).json({ success: false, message: 'Base de datos no configurada.' });
@@ -140,8 +143,8 @@ export async function createServerApp() {
     }
   });
 
-  // All other API routes...
-  app.get('/api/productos', async (req, res) => {
+  // Products
+  api.get('/productos', async (req, res) => {
     try {
       const { rows } = await pool.query("SELECT * FROM productos WHERE activo = TRUE ORDER BY nombre ASC");
       res.json(rows);
@@ -150,7 +153,7 @@ export async function createServerApp() {
     }
   });
 
-  app.post('/api/productos', async (req, res) => {
+  api.post('/productos', async (req, res) => {
     const { nombre, precio, stock, imagen_url } = req.body;
     try {
       const { rows } = await pool.query(
@@ -163,7 +166,7 @@ export async function createServerApp() {
     }
   });
 
-  app.put('/api/productos/:id', async (req, res) => {
+  api.put('/productos/:id', async (req, res) => {
     const { nombre, precio, stock, imagen_url } = req.body;
     try {
       await pool.query(
@@ -176,7 +179,7 @@ export async function createServerApp() {
     }
   });
 
-  app.delete('/api/productos/:id', async (req, res) => {
+  api.delete('/productos/:id', async (req, res) => {
     try {
       await pool.query("UPDATE productos SET activo = FALSE WHERE id = $1", [req.params.id]);
       res.json({ success: true });
@@ -185,7 +188,8 @@ export async function createServerApp() {
     }
   });
 
-  app.post('/api/ventas', async (req, res) => {
+  // Sales
+  api.post('/ventas', async (req, res) => {
     const { total, metodo_pago, items } = req.body;
     const client = await pool.connect();
     try {
@@ -212,7 +216,7 @@ export async function createServerApp() {
     }
   });
 
-  app.get('/api/ventas', async (req, res) => {
+  api.get('/ventas', async (req, res) => {
     try {
       const { rows } = await pool.query("SELECT * FROM ventas ORDER BY fecha DESC");
       res.json(rows);
@@ -221,7 +225,7 @@ export async function createServerApp() {
     }
   });
 
-  app.get('/api/stats/products', async (req, res) => {
+  api.get('/stats/products', async (req, res) => {
     try {
       const { rows } = await pool.query(`
         SELECT p.nombre, SUM(dv.cantidad) as total_vendido
@@ -236,7 +240,7 @@ export async function createServerApp() {
     }
   });
 
-  app.get('/api/stats/daily', async (req, res) => {
+  api.get('/stats/daily', async (req, res) => {
     try {
       const { rows } = await pool.query(`
         SELECT DATE(fecha) as date, SUM(total) as revenue
@@ -249,6 +253,10 @@ export async function createServerApp() {
       res.status(500).json({ error: err.message });
     }
   });
+
+  // Mount the router on both /api and the root to handle Vercel's rewrite behavior
+  app.use('/api', api);
+  app.use('/', api);
 
   return app;
 }
