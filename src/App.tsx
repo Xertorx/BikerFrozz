@@ -396,7 +396,7 @@ export default function App() {
               <div className="mx-auto w-24 h-24 mb-6 relative group">
                 <div className="absolute inset-0 bg-primary/20 rounded-full blur-2xl group-hover:bg-primary/30 transition-all duration-500 animate-pulse"></div>
                 <img 
-                  src="https://picsum.photos/seed/slushie_logo/200/200" 
+                  src="https://picsum.photos/seed/raspado_pos/400/400" 
                   className="w-24 h-24 rounded-full object-cover border-4 border-white shadow-2xl relative z-10 transition-transform hover:scale-105 duration-500" 
                   alt="Biker Frozz Logo"
                   referrerPolicy="no-referrer"
@@ -447,7 +447,7 @@ export default function App() {
         <div className="p-8 flex items-center border-b border-border mb-4">
           <div className="mr-3">
              <img 
-                src="https://picsum.photos/seed/slushie_icon/100/100" 
+                src="https://picsum.photos/seed/shavedice_icon/200/200" 
                 className="w-10 h-10 rounded-xl object-cover shadow-md border border-border" 
                 alt="Logo" 
                 referrerPolicy="no-referrer"

@@ -67,14 +67,14 @@ export async function createServerApp() {
       const { rows: productCount } = await client.query("SELECT COUNT(*) as count FROM productos");
       if (parseInt(productCount[0].count) === 0) {
         const seedProducts = [
-          ["Granizado de Maracuyá", 8000, 50, "https://picsum.photos/seed/maracuya/400/400"],
-          ["Granizado de Lulo", 8000, 50, "https://picsum.photos/seed/lulo/400/400"],
-          ["Granizado de Fresa", 8000, 50, "https://picsum.photos/seed/strawberry/400/400"],
-          ["Granizado de Limonada", 7000, 50, "https://picsum.photos/seed/lemon/400/400"],
-          ["Granizado de Café (Frappé)", 9500, 40, "https://picsum.photos/seed/coffee/400/400"],
-          ["Granizado de Mango Biche", 8500, 45, "https://picsum.photos/seed/mango/400/400"],
-          ["Granizado con Ron", 12000, 30, "https://picsum.photos/seed/rum/400/400"],
-          ["Granizado con Tequila", 14000, 25, "https://picsum.photos/seed/tequila/400/400"]
+          ["Raspado de Maracuyá", 8000, 50, "https://picsum.photos/seed/shavedice_maracuya/400/400"],
+          ["Raspado de Lulo", 8000, 50, "https://picsum.photos/seed/shavedice_lulo/400/400"],
+          ["Raspado de Fresa", 8000, 50, "https://picsum.photos/seed/shavedice_strawberry/400/400"],
+          ["Raspado de Limonada", 7000, 50, "https://picsum.photos/seed/shavedice_lemon/400/400"],
+          ["Raspado de Café (Frappé)", 9500, 40, "https://picsum.photos/seed/shavedice_coffee/400/400"],
+          ["Raspado de Mango Biche", 8500, 45, "https://picsum.photos/seed/shavedice_mango/400/400"],
+          ["Raspado con Ron", 12000, 30, "https://picsum.photos/seed/shavedice_rum/400/400"],
+          ["Raspado con Tequila", 14000, 25, "https://picsum.photos/seed/shavedice_tequila/400/400"]
         ];
 
         for (const p of seedProducts) {

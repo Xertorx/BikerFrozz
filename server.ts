@@ -1,11 +1,14 @@
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
-import { createServerApp } from './src/server_app';
+import apiApp from './api/server';
 
 async function startLocalServer() {
-  const app = await createServerApp();
+  const app = express();
   const PORT = Number(process.env.PORT) || 3000;
+
+  // Use the API logic
+  app.use(apiApp);
 
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
@@ -22,11 +25,8 @@ async function startLocalServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Biker Frozz Local Server: http://localhost:${PORT}`);
+    console.log(`Biker Frozz Development Server: http://localhost:${PORT}`);
   });
 }
 
-// Only run if locally or explicitly starting a server process
-if (process.env.NODE_ENV !== 'test') {
-  startLocalServer();
-}
+startLocalServer();
