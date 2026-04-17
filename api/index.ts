@@ -10,6 +10,7 @@ app.use(cors());
 app.use(express.json());
 
 // Database setup
+// We initialize it here to ensure the serverless function has access to it
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.DATABASE_URL?.includes('localhost') ? false : { rejectUnauthorized: false }
@@ -49,18 +50,6 @@ async function initDb() {
       );
       INSERT INTO usuarios (username, password) VALUES ('admin', 'admin') ON CONFLICT (username) DO NOTHING;
     `);
-    
-    const { rows } = await client.query("SELECT COUNT(*) FROM productos");
-    if (parseInt(rows[0].count) === 0) {
-      const seed = [
-        ["Raspado de Maracuyá", 8000, 50, "https://picsum.photos/seed/shavedice_maracuya/400/400"],
-        ["Raspado de Lulo", 8000, 50, "https://picsum.photos/seed/shavedice_lulo/400/400"],
-        ["Raspado de Fresa", 8000, 50, "https://picsum.photos/seed/shavedice_strawberry/400/400"]
-      ];
-      for (const p of seed) {
-        await client.query("INSERT INTO productos (nombre, precio, stock, imagen_url) VALUES ($1, $2, $3, $4)", p);
-      }
-    }
     client.release();
   } catch (e) {
     console.error("DB Init Error:", e);
@@ -77,7 +66,7 @@ api.get('/health', async (req, res) => {
     const client = await pool.connect();
     await client.query('SELECT 1');
     client.release();
-    res.json({ status: 'ok', db: 'connected' });
+    res.json({ status: 'ok', message: 'API Biker Frozz funcionando' });
   } catch (err: any) {
     res.status(503).json({ status: 'error', message: err.message });
   }
@@ -88,9 +77,9 @@ api.post('/login', async (req, res) => {
   try {
     const { rows } = await pool.query("SELECT * FROM usuarios WHERE username = $1 AND password = $2", [username, password]);
     if (rows.length > 0) return res.json({ success: true, user: rows[0] });
-    res.status(401).json({ success: false, message: 'Credenciales inválidas' });
+    res.status(401).json({ success: false, message: 'Usuario o contraseña incorrectos' });
   } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: 'Error de servidor', details: err.message });
   }
 });
 
@@ -197,7 +186,7 @@ api.get('/stats/daily', async (req, res) => {
   }
 });
 
-// Handle both /api prefix and direct access
+// CRITICAL FOR VERCEL: Mount the router for BOTH cases
 app.use('/api', api);
 app.use('/', api);
 

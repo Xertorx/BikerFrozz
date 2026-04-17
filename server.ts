@@ -1,14 +1,14 @@
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
-import apiApp from './api/server';
+import apiHandler from './api/index';
 
 async function startLocalServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
 
-  // Use the API logic
-  app.use(apiApp);
+  // Mount the same API handler used in Vercel
+  app.use(apiHandler);
 
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
@@ -25,7 +25,7 @@ async function startLocalServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Biker Frozz Development Server: http://localhost:${PORT}`);
+    console.log(`Biker Frozz Local: http://localhost:${PORT}`);
   });
 }
 
