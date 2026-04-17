@@ -7,7 +7,7 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-async function startServer() {
+async function createServerApp() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
 
@@ -296,7 +296,7 @@ async function startServer() {
   });
 
   // Serve Frontend
-  if (process.env.NODE_ENV !== 'production') {
+  if (process.env.NODE_ENV !== 'production' && process.env.VERCEL !== '1') {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
@@ -310,9 +310,20 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+  return { app, PORT };
+}
+
+// For local/Process-based execution (AI Studio, Render)
+if (process.env.VERCEL !== '1') {
+  createServerApp().then(({ app, PORT }) => {
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
   });
 }
 
-startServer();
+// Export for Vercel
+export default async (req: any, res: any) => {
+  const { app } = await createServerApp();
+  return app(req, res);
+};
