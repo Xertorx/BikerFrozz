@@ -17,7 +17,6 @@ async function createServerApp() {
   // Database setup using PostgreSQL
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    // For cloud environments that might require SSL
     ssl: process.env.DATABASE_URL?.includes('localhost') ? false : { rejectUnauthorized: false }
   });
 
@@ -45,7 +44,6 @@ async function createServerApp() {
         )
       `);
 
-      // Ensure 'activo' column exists for existing tables
       await client.query("ALTER TABLE productos ADD COLUMN IF NOT EXISTS activo BOOLEAN DEFAULT TRUE");
 
       await client.query(`
@@ -67,10 +65,8 @@ async function createServerApp() {
         )
       `);
 
-      // Default admin
       await client.query("INSERT INTO usuarios (username, password) VALUES ('admin', 'admin') ON CONFLICT (username) DO NOTHING");
       
-      // Seed products if empty
       const { rows: productCount } = await client.query("SELECT COUNT(*) as count FROM productos");
       if (parseInt(productCount[0].count) === 0) {
         const seedProducts = [
@@ -97,7 +93,6 @@ async function createServerApp() {
     }
   }
 
-  // Initial attempt
   if (process.env.DATABASE_URL) {
     initDb();
   }
@@ -117,20 +112,13 @@ async function createServerApp() {
   // Auth
   app.post('/api/login', async (req, res) => {
     const { username, password } = req.body;
-    
-    // Check if database is configured
     if (!process.env.DATABASE_URL) {
-      return res.status(503).json({ 
-        success: false, 
-        message: 'Base de datos no configurada. Por favor, añada DATABASE_URL en los Secrets de AI Studio.' 
-      });
+      return res.status(503).json({ success: false, message: 'Base de datos no configurada.' });
     }
 
     const tryLogin = async () => {
       const { rows } = await pool.query("SELECT * FROM usuarios WHERE username = $1 AND password = $2", [username, password]);
-      if (rows.length > 0) {
-        return { success: true, user: rows[0] };
-      }
+      if (rows.length > 0) return { success: true, user: rows[0] };
       return { success: false, message: 'Usuario o contraseña incorrectos' };
     };
 
@@ -143,26 +131,15 @@ async function createServerApp() {
       }
     } catch (err: any) {
       const errorMsg = err.message || '';
-      // If table doesn't exist, try to init and retry once
       if (errorMsg.includes('does not exist') && (errorMsg.includes('usuarios') || errorMsg.includes('relation'))) {
-        console.log('Database tables might be missing, attempting on-demand initialization...');
         const inited = await initDb();
         if (inited) {
-          try {
-            console.log('Retry login after successful initialization...');
-            const result = await tryLogin();
-            if (result.success) return res.json(result);
-            return res.status(401).json(result);
-          } catch (retryErr: any) {
-            console.error('Retry login failed:', retryErr);
-            return res.status(500).json({ success: false, message: 'Error tras re-inicialización', details: retryErr.message });
-          }
-        } else {
-          console.error('Database initialization failed during login attempt.');
+          const result = await tryLogin();
+          if (result.success) return res.json(result);
+          return res.status(401).json(result);
         }
       }
-      console.error('Login error:', err);
-      res.status(500).json({ success: false, message: 'Error de conexión con la base de datos Supabase', details: err.message });
+      res.status(500).json({ success: false, message: 'Error de base de datos', details: err.message });
     }
   });
 
@@ -250,22 +227,6 @@ async function createServerApp() {
     }
   });
 
-  app.delete('/api/ventas', async (req, res) => {
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      await client.query("DELETE FROM detalle_ventas");
-      await client.query("DELETE FROM ventas");
-      await client.query('COMMIT');
-      res.json({ success: true, message: 'Historial eliminado' });
-    } catch (err: any) {
-      await client.query('ROLLBACK');
-      res.status(500).json({ error: err.message });
-    } finally {
-      client.release();
-    }
-  });
-
   app.get('/api/stats/products', async (req, res) => {
     try {
       const { rows } = await pool.query(`
@@ -295,35 +256,43 @@ async function createServerApp() {
     }
   });
 
-  // Serve Frontend
-  if (process.env.NODE_ENV !== 'production' && process.env.VERCEL !== '1') {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+  // Serve Frontend only when NOT on Vercel
+  if (process.env.VERCEL !== '1') {
+    if (process.env.NODE_ENV !== 'production') {
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+    } else {
+      const distPath = path.join(process.cwd(), 'dist');
+      app.use(express.static(distPath));
+      app.get('*', (req, res) => {
+        res.sendFile(path.join(distPath, 'index.html'));
+      });
+    }
   }
 
-  return { app, PORT };
+  return app;
 }
 
-// For local/Process-based execution (AI Studio, Render)
-if (process.env.VERCEL !== '1') {
-  createServerApp().then(({ app, PORT }) => {
+// Global instance for Vercel
+let vercelApp: any = null;
+
+// Export for Vercel Serverless
+export default async (req: any, res: any) => {
+  if (!vercelApp) {
+    vercelApp = await createServerApp();
+  }
+  return vercelApp(req, res);
+};
+
+// Local development only (AI Studio)
+if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+  createServerApp().then(app => {
+    const PORT = 3000;
     app.listen(PORT, '0.0.0.0', () => {
-      console.log(`Server running on http://localhost:${PORT}`);
+      console.log(`AI Studio Dev Server: http://localhost:${PORT}`);
     });
   });
 }
-
-// Export for Vercel
-export default async (req: any, res: any) => {
-  const { app } = await createServerApp();
-  return app(req, res);
-};

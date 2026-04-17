@@ -1,0 +1,9 @@
+
+{
+  "name": "Biker Frozz",
+  "short_name": "BikerFrozz",
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#ff4e00",
+  "background_color": "#ffffff"
+}
