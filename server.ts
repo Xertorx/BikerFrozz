@@ -109,6 +109,22 @@ async function startLocalServer() {
     }
   });
 
+  app.delete('/api/ventas', async (req, res) => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query("DELETE FROM detalle_ventas");
+      await client.query("DELETE FROM ventas");
+      await client.query('COMMIT');
+      res.json({ success: true });
+    } catch (err: any) {
+      await client.query('ROLLBACK');
+      res.status(500).json({ error: err.message });
+    } finally {
+      client.release();
+    }
+  });
+
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },

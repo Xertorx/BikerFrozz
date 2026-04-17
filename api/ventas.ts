@@ -32,6 +32,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
+    if (req.method === 'DELETE') {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query("DELETE FROM detalle_ventas");
+        await client.query("DELETE FROM ventas");
+        await client.query('COMMIT');
+        return res.json({ success: true });
+      } catch (err: any) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
+    }
+
     res.status(405).json({ message: 'Method Not Allowed' });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
