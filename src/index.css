@@ -1,0 +1,82 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@theme {
+  --font-sans: "Inter", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --color-background: #fdfdfd;
+  --color-foreground: #111111;
+  --color-card: #ffffff;
+  --color-card-foreground: #111111;
+  --color-popover: #ffffff;
+  --color-popover-foreground: #111111;
+  --color-primary: #ff4e00;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #f4f4f5;
+  --color-secondary-foreground: #111111;
+  --color-muted: #f4f4f5;
+  --color-muted-foreground: #71717a;
+  --color-accent: #f4f4f5;
+  --color-accent-foreground: #111111;
+  --color-border: #eeeeee;
+  --color-input: #eeeeee;
+  --color-ring: #ff4e00;
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  
+  --radius: 1rem;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-feature-settings: "rlig" 1, "calt" 1;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* Custom UI Patterns */
+.sleek-card {
+  @apply bg-card border border-border shadow-sm rounded-2xl transition-all duration-300;
+}
+
+.sleek-card:hover {
+  @apply shadow-md border-primary/20;
+}
+
+.badge {
+  @apply px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border;
+}
+
+.badge-success {
+  @apply bg-green-50 text-green-600 border-green-100;
+}
+
+.badge-warning {
+  @apply bg-amber-50 text-amber-600 border-amber-100;
+}
+
+.badge-danger {
+  @apply bg-red-50 text-red-600 border-red-100;
+}
+
+.glass-header {
+  @apply bg-white/80 backdrop-blur-md border-b border-border sticky top-0 z-50;
+}
+
+.sidebar-link {
+  @apply w-full flex items-center space-x-4 px-5 py-4 rounded-xl transition-all duration-300 font-bold text-sm;
+}
+
+.sidebar-link.active {
+  @apply bg-primary/5 text-primary border border-primary/10 shadow-sm;
+}
+
+.sidebar-link:not(.active) {
+  @apply text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900;
+}
