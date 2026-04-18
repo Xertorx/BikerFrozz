@@ -20,7 +20,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.status(500).json({ 
       success: false, 
       message: 'Error en el servidor de base de datos', 
-      debug: process.env.NODE_ENV === 'development' ? err.message : undefined 
+      debug: err.message 
     });
   }
 }

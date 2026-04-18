@@ -9,6 +9,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     client.release();
     res.json({ status: 'ok', database: 'connected', message: 'Biker Frozz API is health' });
   } catch (err: any) {
-    res.status(503).json({ status: 'error', database: 'disconnected', message: err.message });
+    res.status(503).json({ 
+      status: 'error', 
+      database: 'disconnected', 
+      message: err.message,
+      stack: err.stack,
+      conn_string_exists: !!process.env.DATABASE_URL,
+      conn_string_length: process.env.DATABASE_URL?.length || 0
+    });
   }
 }

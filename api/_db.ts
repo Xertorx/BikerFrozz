@@ -5,9 +5,10 @@ const connectionString = process.env.DATABASE_URL;
 
 export const pool = new Pool({
   connectionString: connectionString,
-  ssl: connectionString?.includes('localhost') ? false : { rejectUnauthorized: false },
-  max: 1, // Crucial para Serverless
-  connectionTimeoutMillis: 10000,
+  ssl: { rejectUnauthorized: false },
+  max: 1,
+  connectionTimeoutMillis: 15000, // Darle más tiempo para despertar
+  idleTimeoutMillis: 30000,
 });
 
 export async function initDb() {
