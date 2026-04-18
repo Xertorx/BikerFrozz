@@ -1,10 +1,10 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { pool, initDb } from './_db';
+import { pool, initDb } from './_db.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  await initDb();
-
   try {
+    await initDb();
+
     if (req.method === 'GET') {
       const { rows } = await pool.query("SELECT * FROM ventas ORDER BY fecha DESC");
       return res.json(rows);

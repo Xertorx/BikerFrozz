@@ -1,18 +1,19 @@
 import { Pool } from 'pg';
 
-// Vercel auto-populates process.env, no need for dotenv here.
+// Configuración mínima y robusta para Vercel
+const connectionString = process.env.DATABASE_URL;
+
 export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-  max: 1,
-  connectionTimeoutMillis: 5000,
-  idleTimeoutMillis: 30000
+  connectionString: connectionString,
+  ssl: connectionString?.includes('localhost') ? false : { rejectUnauthorized: false },
+  max: 1, // Crucial para Serverless
+  connectionTimeoutMillis: 10000,
 });
 
-let isInitialized = false;
-
 export async function initDb() {
-  if (isInitialized || !process.env.DATABASE_URL) return;
+  if (!connectionString) {
+    throw new Error('DATABASE_URL no configurada en las variables de entorno de Vercel');
+  }
   
   const client = await pool.connect();
   try {
@@ -23,9 +24,6 @@ export async function initDb() {
       CREATE TABLE IF NOT EXISTS detalle_ventas (id SERIAL PRIMARY KEY, venta_id INTEGER REFERENCES ventas(id), producto_id INTEGER REFERENCES productos(id), cantidad INTEGER, subtotal REAL);
       INSERT INTO usuarios (username, password) VALUES ('admin', 'admin') ON CONFLICT (username) DO NOTHING;
     `);
-    isInitialized = true;
-  } catch (e) {
-    console.error("DB Init error", e);
   } finally {
     client.release();
   }
