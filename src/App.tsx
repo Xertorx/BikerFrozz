@@ -7,6 +7,7 @@ import {
   History, 
   LayoutDashboard, 
   LogOut, 
+  Menu,
   Plus, 
   Search, 
   ShoppingCart, 
@@ -93,6 +94,10 @@ export default function App() {
   const [filterStartDate, setFilterStartDate] = useState('');
   const [filterEndDate, setFilterEndDate] = useState('');
   const [filterSingleDate, setFilterSingleDate] = useState('');
+
+  // Mobile state
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isCartOpen, setIsCartOpen] = useState(false);
 
   // Modals States
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
@@ -441,10 +446,50 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex font-sans">
-      {/* Sidebar */}
-      <div className="w-[280px] bg-card border-r border-border flex flex-col shadow-sm">
-        <div className="p-8 flex items-center border-b border-border mb-4">
+    <div className="min-h-screen bg-background text-foreground flex flex-col md:flex-row font-sans">
+      {/* Mobile Header */}
+      <header className="lg:hidden h-16 flex items-center justify-between px-4 bg-card border-b border-border z-50">
+        <div className="flex items-center">
+           <img 
+              src="https://picsum.photos/seed/shavedice_icon/200/200" 
+              className="w-8 h-8 rounded-lg object-cover shadow-sm mr-2" 
+              alt="Logo" 
+              referrerPolicy="no-referrer"
+           />
+           <h1 className="text-lg font-black text-foreground tracking-tighter uppercase italic">BIKER<span className="text-primary italic">FROZZ</span></h1>
+        </div>
+        <div className="flex items-center gap-2">
+          {activeTab === 'ventas' && (
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="relative" 
+              onClick={() => setIsCartOpen(!isCartOpen)}
+            >
+              <ShoppingCart size={20} />
+              {cart.length > 0 && (
+                <span className="absolute -top-1 -right-1 bg-primary text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
+                  {cart.length}
+                </span>
+              )}
+            </Button>
+          )}
+          <Button variant="ghost" size="icon" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
+            {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+          </Button>
+        </div>
+      </header>
+
+      {/* Sidebar - Desktop & Mobile Overlay */}
+      <div className={`
+        fixed inset-0 z-40 bg-black/50 lg:hidden transition-opacity ${isMobileMenuOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}
+      `} onClick={() => setIsMobileMenuOpen(false)} />
+
+      <aside className={`
+        fixed lg:static inset-y-0 left-0 z-50 w-[260px] bg-card border-r border-border flex flex-col shadow-sm transition-transform duration-300 lg:translate-x-0
+        ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}
+      `}>
+        <div className="p-8 hidden lg:flex items-center border-b border-border mb-4">
           <div className="mr-3">
              <img 
                 src="https://picsum.photos/seed/shavedice_icon/200/200" 
@@ -456,17 +501,17 @@ export default function App() {
           <h1 className="text-xl font-black text-foreground tracking-tighter uppercase italic">BIKER<span className="text-primary italic">FROZZ</span></h1>
         </div>
         
-        <nav className="flex-1 px-4 space-y-1">
-          <NavItem icon={<LayoutDashboard size={18} />} label="Panel de Control" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
-          <NavItem icon={<Box size={18} />} label="Inventario" active={activeTab === 'inventario'} onClick={() => setActiveTab('inventario')} />
-          <NavItem icon={<ShoppingCart size={18} />} label="Punto de Venta" active={activeTab === 'ventas'} onClick={() => setActiveTab('ventas')} />
-          <NavItem icon={<History size={18} />} label="Historial" active={activeTab === 'historial'} onClick={() => setActiveTab('historial')} />
-          <NavItem icon={<BarChart3 size={18} />} label="Estadísticas" active={activeTab === 'analíticas'} onClick={() => setActiveTab('analíticas')} />
+        <nav className="flex-1 px-4 py-8 lg:py-0 space-y-1">
+          <NavItem icon={<LayoutDashboard size={18} />} label="Panel de Control" active={activeTab === 'dashboard'} onClick={() => { setActiveTab('dashboard'); setIsMobileMenuOpen(false); }} />
+          <NavItem icon={<Box size={18} />} label="Inventario" active={activeTab === 'inventario'} onClick={() => { setActiveTab('inventario'); setIsMobileMenuOpen(false); }} />
+          <NavItem icon={<ShoppingCart size={18} />} label="Punto de Venta" active={activeTab === 'ventas'} onClick={() => { setActiveTab('ventas'); setIsMobileMenuOpen(false); }} />
+          <NavItem icon={<History size={18} />} label="Historial" active={activeTab === 'historial'} onClick={() => { setActiveTab('historial'); setIsMobileMenuOpen(false); }} />
+          <NavItem icon={<BarChart3 size={18} />} label="Estadísticas" active={activeTab === 'analíticas'} onClick={() => { setActiveTab('analíticas'); setIsMobileMenuOpen(false); }} />
         </nav>
 
         <div className="p-4 mt-auto">
           <div className="bg-secondary/50 p-4 border border-border rounded-xl space-y-1 mb-4">
-            <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest">PostgreSQL Active</p>
+            <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest">PostgreSQL Ready</p>
             <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest">User: {username}</p>
           </div>
           <Button variant="ghost" className="w-full justify-start text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-xl font-bold" onClick={() => setIsLoggedIn(false)}>
@@ -474,11 +519,11 @@ export default function App() {
             Cerrar Sesión
           </Button>
         </div>
-      </div>
+      </aside>
 
       {/* Main Content */}
-      <div className="flex-1 overflow-hidden flex flex-col">
-        <header className="h-24 glass-header flex items-center justify-between px-10">
+      <div className="flex-1 overflow-hidden flex flex-col w-full">
+        <header className="hidden lg:flex h-24 glass-header items-center justify-between px-10">
           <div>
             <h2 className="text-3xl font-black text-foreground tracking-tight capitalize">{activeTab === 'dashboard' ? 'Panel General' : activeTab}</h2>
             <p className="text-sm text-muted-foreground font-medium">Biker Frozz Gestor de Bar & POS</p>
@@ -491,8 +536,13 @@ export default function App() {
           </div>
         </header>
 
+        {/* Mobile Sub-Header */}
+        <div className="lg:hidden p-4 pb-0">
+          <h2 className="text-2xl font-black text-foreground tracking-tight capitalize">{activeTab === 'dashboard' ? 'Panel General' : activeTab}</h2>
+        </div>
+
         <ScrollArea className="flex-1">
-          <div className="p-8">
+          <div className="p-4 lg:p-8">
             <AnimatePresence mode="wait">
               {activeTab === 'dashboard' && (
                 <motion.div key="dashboard" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-10">
@@ -637,28 +687,29 @@ export default function App() {
 
               {activeTab === 'inventario' && (
                 <motion.div key="inventario" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8">
-                  <div className="flex justify-between items-center bg-card p-8 rounded-3xl shadow-sm border border-border">
-                    <div className="relative w-full max-w-sm">
+                  <div className="flex flex-col lg:flex-row justify-between items-center bg-card p-4 lg:p-8 rounded-3xl shadow-sm border border-border gap-4">
+                    <div className="relative w-full lg:max-w-sm">
                       <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                       <Input 
                         placeholder="Filtrar por nombre..." 
-                        className="pl-12 bg-secondary/50 border-border h-12 rounded-2xl focus:ring-primary/20 text-sm font-medium"
+                        className="pl-12 bg-secondary/50 border-border h-12 rounded-2xl focus:ring-primary/20 text-sm font-medium w-full"
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                       />
                     </div>
-                    <div className="flex space-x-4">
-                      <Button variant="outline" className="border-border bg-card hover:bg-secondary/50 h-12 rounded-2xl px-8 font-bold text-sm shadow-sm" onClick={exportInventory}>
-                        <Download size={18} className="mr-2" /> Exportar Excel
+                    <div className="flex w-full lg:w-auto h-12 gap-3 lg:gap-4">
+                      <Button variant="outline" className="flex-1 lg:flex-none border-border bg-card hover:bg-secondary/50 h-full rounded-2xl px-4 lg:px-8 font-bold text-xs lg:text-sm shadow-sm" onClick={exportInventory}>
+                        <Download size={18} className="lg:mr-2" /> Exportar <span className="hidden sm:inline">Excel</span>
                       </Button>
-                      <Button className="bg-primary hover:bg-primary/90 text-white font-black h-12 rounded-2xl px-8 text-sm shadow-lg shadow-primary/20" onClick={openAddModal}>
-                        <Plus size={18} className="mr-2" /> Nuevo Producto
+                      <Button className="flex-1 lg:flex-none bg-primary hover:bg-primary/90 text-white font-black h-full rounded-2xl px-4 lg:px-8 text-xs lg:text-sm shadow-lg shadow-primary/20" onClick={openAddModal}>
+                        <Plus size={18} className="lg:mr-2" /> Nuevo <span className="hidden sm:inline">Producto</span>
                       </Button>
                     </div>
                   </div>
 
                   <Card className="sleek-card border-none overflow-hidden">
-                    <Table>
+                    <div className="overflow-x-auto">
+                      <Table>
                       <TableHeader className="bg-secondary/30">
                         <TableRow className="border-border/50 hover:bg-transparent">
                           <TableHead className="text-muted-foreground font-bold px-10 py-6 text-[10px] uppercase tracking-widest leading-none">Imagen</TableHead>
@@ -704,12 +755,13 @@ export default function App() {
                         ))}
                       </TableBody>
                     </Table>
-                  </Card>
+                  </div>
+                </Card>
                 </motion.div>
               )}
 
               {activeTab === 'ventas' && (
-                <motion.div key="ventas" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="grid grid-cols-1 lg:grid-cols-12 gap-10">
+                <motion.div key="ventas" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="grid grid-cols-1 lg:grid-cols-12 gap-10 relative">
                   <div className="lg:col-span-8 space-y-8">
                     <div className="bg-card p-6 rounded-3xl border border-border shadow-sm mb-6 flex items-center gap-4">
                       <Search className="text-muted-foreground" size={20} />
@@ -720,14 +772,14 @@ export default function App() {
                         onChange={(e) => setSearchTerm(e.target.value)}
                       />
                     </div>
-                    <div className="grid grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
+                    <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3 lg:gap-4">
                       {products.filter(p => (p.stock > 0 || true) && p.nombre.toLowerCase().includes(searchTerm.toLowerCase())).map(p => (
                         <Card 
                           key={p.id} 
                           className="sleek-card border-none hover:ring-2 hover:ring-primary/20 cursor-pointer overflow-hidden group transition-all active:scale-[0.98]"
                           onClick={() => addToCart(p)}
                         >
-                          <div className="relative h-32 bg-secondary/20 overflow-hidden">
+                          <div className="relative h-28 lg:h-32 bg-secondary/20 overflow-hidden">
                              {p.imagen_url ? (
                                <img src={p.imagen_url} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" alt={p.nombre} referrerPolicy="no-referrer" />
                              ) : (
@@ -741,14 +793,14 @@ export default function App() {
                              {p.stock <= 5 && (
                                <div className="absolute top-2 left-2 h-6 px-2 bg-amber-500 rounded-lg flex items-center shadow-lg border border-amber-600/20">
                                   <span className="text-[8px] font-black text-black uppercase tracking-wider">{p.stock} LEFT</span>
-                               </div>
+                                </div>
                              )}
                           </div>
                           <CardContent className="p-3 flex flex-col gap-1 bg-white">
                             <span className="text-[10px] font-black text-foreground uppercase tracking-tight line-clamp-1">{p.nombre}</span>
                             <div className="flex justify-between items-center mt-0.5">
                                <div className="flex items-center text-primary font-black text-sm">
-                                 <span className="text-[10px] mr-0.5 mt-0.5">$</span>
+                                 <span className="text-[10px] mr-1 mt-0.5">$</span>
                                  {p.precio.toLocaleString()}
                                </div>
                                <div className="p-1 bg-secondary rounded-md group-hover:bg-primary/10 group-hover:text-primary transition-colors">
@@ -761,52 +813,68 @@ export default function App() {
                     </div>
                   </div>
 
-                  <Card className="lg:col-span-4 sleek-card border-none flex flex-col min-h-[1200px] rounded-3xl overflow-hidden shadow-2xl sticky top-24">
-                    <div className="p-6 border-b border-border/50 flex justify-between items-center bg-white shadow-sm flex-shrink-0 z-10">
-                      <h3 className="font-black uppercase tracking-tight flex items-center text-base"><ShoppingCart className="mr-3 text-primary" size={20} /> Orden Actual</h3>
-                      <Badge className="bg-primary/10 text-primary border-primary/20 px-3 py-1 rounded-full font-black text-[10px]">{cart.length} ITEMS</Badge>
-                    </div>
-                    <CardContent className="flex-1 flex flex-col p-0 bg-secondary/10 overflow-hidden relative">
-                      <div className="flex-1 overflow-y-auto p-6 scrollbar-hide">
-                        {cart.length === 0 ? (
-                          <div className="flex flex-col items-center justify-center h-full text-muted-foreground opacity-20 text-center gap-6 py-10">
-                            <ShoppingCart size={64} strokeWidth={1} className="animate-bounce-slow" />
-                            <div className="space-y-2">
-                              <p className="font-black tracking-[0.3em] uppercase text-xs">CARRITO VACÍO</p>
-                              <p className="text-[10px] font-bold leading-relaxed px-10">Seleccione productos para generar una nueva venta</p>
+                  {/* Cart Sidebar (Desktop) or Drawer (Mobile) */}
+                  <div className={`
+                    lg:col-span-4 fixed lg:sticky inset-x-0 bottom-0 top-0 lg:top-24 z-40 lg:z-0
+                    transition-transform duration-300 lg:translate-y-0
+                    ${isCartOpen ? 'translate-y-0' : 'translate-y-full lg:translate-y-0'}
+                  `}>
+                    {/* Backdrop for mobile */}
+                    <div className="absolute inset-0 bg-black/50 lg:hidden" onClick={() => setIsCartOpen(false)} />
+                    
+                    <Card className="absolute lg:relative bottom-0 lg:bottom-auto w-full h-[85vh] lg:h-[calc(100vh-140px)] sleek-card border-none flex flex-col rounded-t-[32px] lg:rounded-3xl overflow-hidden shadow-2xl">
+                      <div className="p-6 border-b border-border/50 flex justify-between items-center bg-white shadow-sm flex-shrink-0 z-10">
+                        <h3 className="font-black uppercase tracking-tight flex items-center text-base"><ShoppingCart className="mr-3 text-primary" size={20} /> Orden Actual</h3>
+                        <div className="flex items-center gap-2">
+                          <Badge className="bg-primary/10 text-primary border-primary/20 px-3 py-1 rounded-full font-black text-[10px]">{cart.length} ITEMS</Badge>
+                          <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setIsCartOpen(false)}>
+                            <X size={20} />
+                          </Button>
+                        </div>
+                      </div>
+                      <CardContent className="flex-1 flex flex-col p-0 bg-secondary/10 overflow-hidden relative">
+                        <div className="flex-1 overflow-y-auto p-4 lg:p-6 scrollbar-hide">
+                          {cart.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center h-full text-muted-foreground opacity-20 text-center gap-6 py-10">
+                              <ShoppingCart size={64} strokeWidth={1} className="animate-bounce-slow" />
+                              <div className="space-y-2">
+                                <p className="font-black tracking-[0.3em] uppercase text-xs">CARRITO VACÍO</p>
+                                <p className="text-[10px] font-bold leading-relaxed px-10">Seleccione productos para generar una nueva venta</p>
+                              </div>
                             </div>
-                          </div>
-                        ) : (
-                          <div className="space-y-3 pb-4">
-                            {cart.map(item => (
-                              <div key={item.id} className="flex items-center justify-between group p-3 bg-white rounded-2xl border border-border shadow-sm hover:border-primary/20 transition-all">
-                                <div className="flex items-center min-w-0">
-                                  {item.imagen_url && <img src={item.imagen_url} className="w-8 h-8 rounded-lg mr-3 object-cover border border-border flex-shrink-0" referrerPolicy="no-referrer" />}
-                                  <div className="flex flex-col min-w-0">
-                                    <span className="text-xs font-black text-foreground uppercase tracking-tight truncate">{item.nombre}</span>
-                                    <span className="text-[10px] font-bold text-muted-foreground uppercase">{item.cantidad} x ${item.precio.toLocaleString()}</span>
+                          ) : (
+                            <div className="space-y-3 pb-4">
+                              {cart.map(item => (
+                                <div key={item.id} className="flex items-center justify-between group p-3 bg-white rounded-2xl border border-border shadow-sm hover:border-primary/20 transition-all">
+                                  <div className="flex items-center min-w-0">
+                                    {item.imagen_url && <img src={item.imagen_url} className="w-8 h-8 rounded-lg mr-3 object-cover border border-border flex-shrink-0" referrerPolicy="no-referrer" />}
+                                    <div className="flex flex-col min-w-0">
+                                      <span className="text-xs font-black text-foreground uppercase tracking-tight truncate">{item.nombre}</span>
+                                      <span className="text-[10px] font-bold text-muted-foreground uppercase">{item.cantidad} x ${item.precio.toLocaleString()}</span>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-3 flex-shrink-0">
+                                    <span className="font-black text-foreground italic tracking-tighter text-sm">${(item.precio * item.cantidad).toLocaleString()}</span>
+                                    <button className="text-muted-foreground hover:text-destructive p-2 bg-secondary rounded-xl transition-colors" onClick={() => removeFromCart(item.id)}><X className="h-3.5 w-3.5" /></button>
                                   </div>
                                 </div>
-                                <div className="flex items-center gap-3 flex-shrink-0">
-                                  <span className="font-black text-foreground italic tracking-tighter text-sm">${(item.precio * item.cantidad).toLocaleString()}</span>
-                                  <button className="text-muted-foreground hover:text-destructive p-2 bg-secondary rounded-xl transition-colors" onClick={() => removeFromCart(item.id)}><X className="h-3.5 w-3.5" /></button>
-                                </div>
-                              </div>
-                            ))}
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        
+                        <div className="p-6 bg-white border-t border-border shadow-[0_-10px_30px_rgba(0,0,0,0.03)] space-y-4 flex-shrink-0 z-10 w-full">
+                          <div className="space-y-3">
+                            <div className="flex justify-between items-center text-xs">
+                              <span className="text-muted-foreground text-[10px] font-bold uppercase tracking-[0.2em]">Subtotal</span>
+                              <span className="font-bold text-foreground">${totalCart.toLocaleString()}</span>
+                            </div>
+                            <div className="flex justify-between items-center bg-primary/5 p-4 rounded-2xl border border-primary/10">
+                              <span className="text-primary text-[10px] font-black uppercase tracking-[0.2em]">Total a Pagar</span>
+                              <span className="text-2xl lg:text-3xl font-black text-foreground tracking-tighter">${totalCart.toLocaleString()}</span>
+                            </div>
                           </div>
-                        )}
-                      </div>
-                      
-                      <div className="p-6 bg-white border-t border-border shadow-[0_-10px_30px_rgba(0,0,0,0.03)] space-y-6 flex-shrink-0 z-10 w-full">
-                        <div className="space-y-3">
-                          <div className="flex justify-between items-center text-sm">
-                            <span className="text-muted-foreground text-[10px] font-bold uppercase tracking-[0.2em]">Subtotal</span>
-                            <span className="font-bold text-foreground">${totalCart.toLocaleString()}</span>
-                          </div>
-                          <div className="flex justify-between items-center bg-primary/5 p-4 rounded-2xl border border-primary/10">
-                            <span className="text-primary text-xs font-black uppercase tracking-[0.2em]">Total a Pagar</span>
-                            <span className="text-3xl font-black text-foreground tracking-tighter">${totalCart.toLocaleString()}</span>
-                          </div>
+
                         </div>
 
                         <div className="space-y-4">
@@ -855,10 +923,10 @@ export default function App() {
                         >
                           REGISTRAR VENTA
                         </Button>
-                      </div>
                     </CardContent>
                   </Card>
-                </motion.div>
+                </div>
+              </motion.div>
               )}
 
               {activeTab === 'historial' && (
@@ -950,7 +1018,8 @@ export default function App() {
                      </div>
 
                     <Card className="sleek-card border-none overflow-hidden">
-                      <Table>
+                      <div className="overflow-x-auto">
+                        <Table>
                         <TableHeader className="bg-secondary/30">
                           <TableRow className="border-border/50 hover:bg-transparent">
                             <TableHead className="text-muted-foreground font-bold px-10 py-6 text-[10px] uppercase tracking-widest leading-none">Fecha y Hora</TableHead>
@@ -985,7 +1054,8 @@ export default function App() {
                           )}
                         </TableBody>
                       </Table>
-                    </Card>
+                    </div>
+                  </Card>
                   </div>
                 </motion.div>
               )}
