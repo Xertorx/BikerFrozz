@@ -77,6 +77,15 @@ interface CartItem extends Product {
   cantidad: number;
 }
 
+interface SaleDetail {
+  id: number;
+  venta_id: number;
+  producto_id: number;
+  producto_nombre: string;
+  cantidad: number;
+  subtotal: number;
+}
+
 const COLORS = ['#ff4e00', '#3b82f6', '#00c853', '#ffd600', '#8b5cf6'];
 
 export default function App() {
@@ -88,7 +97,6 @@ export default function App() {
   const [sales, setSales] = useState<Sale[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [metodoPago, setMetodoPago] = useState('Efectivo');
-  const [montoRecibido, setMontoRecibido] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
   const [historyFilter, setHistoryFilter] = useState<'all' | 'day' | 'week' | 'month' | 'specific' | 'custom'>('all');
   const [filterStartDate, setFilterStartDate] = useState('');
@@ -107,8 +115,12 @@ export default function App() {
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isDeleteHistoryModalOpen, setIsDeleteHistoryModalOpen] = useState(false);
+  const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
+  const [selectedSaleDetails, setSelectedSaleDetails] = useState<SaleDetail[]>([]);
+  const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
   const [newProduct, setNewProduct] = useState<Partial<Product>>({
     nombre: '',
     precio: 0,
@@ -216,7 +228,6 @@ export default function App() {
   };
 
   const totalCart = cart.reduce((acc, item) => acc + (item.precio * item.cantidad), 0);
-  const cambio = montoRecibido - totalCart;
 
   const todayRevenue = (() => {
     const todayStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD
@@ -289,10 +300,6 @@ export default function App() {
 
   const handleProcessSale = async () => {
     if (cart.length === 0) return;
-    if (metodoPago === 'Efectivo' && montoRecibido < totalCart) {
-      toast.error("Monto recibido insuficiente");
-      return;
-    }
 
     try {
       await axios.post('/api/ventas', {
@@ -302,7 +309,6 @@ export default function App() {
       });
       toast.success("Venta registrada con éxito");
       setCart([]);
-      setMontoRecibido(0);
       fetchProducts();
       fetchSales();
       fetchStats();
@@ -323,15 +329,30 @@ export default function App() {
     }
 
     try {
+      let finalImageUrl = newProduct.imagen_url || '';
+
+      // If there's a file to upload, do it first
+      if (imageFile) {
+        const formData = new FormData();
+        formData.append('image', imageFile);
+        const uploadRes = await axios.post('/api/upload', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        finalImageUrl = uploadRes.data.imageUrl;
+      }
+
+      const productData = { ...newProduct, imagen_url: finalImageUrl };
+
       if (editingProduct) {
-        await axios.put(`/api/productos/${editingProduct.id}`, newProduct);
+        await axios.put(`/api/productos/${editingProduct.id}`, productData);
         toast.success("Producto actualizado");
       } else {
-        await axios.post('/api/productos', newProduct);
+        await axios.post('/api/productos', productData);
         toast.success("Producto creado");
       }
       setIsProductModalOpen(false);
       setEditingProduct(null);
+      setImageFile(null);
       setNewProduct({ nombre: '', precio: 0, stock: 0, imagen_url: '' });
       fetchProducts();
     } catch (err) {
@@ -371,12 +392,28 @@ export default function App() {
 
   const openAddModal = () => {
     setEditingProduct(null);
+    setImageFile(null);
     setNewProduct({ nombre: '', precio: 0, stock: 0, imagen_url: '' });
     setIsProductModalOpen(true);
   };
 
+  const fetchSaleDetails = async (saleId: number) => {
+    setIsLoadingDetails(true);
+    setIsDetailsModalOpen(true);
+    try {
+      const res = await axios.get(`/api/detalles_venta?id=${saleId}`);
+      setSelectedSaleDetails(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      toast.error("Error al cargar detalles de la venta");
+      setIsDetailsModalOpen(false);
+    } finally {
+      setIsLoadingDetails(false);
+    }
+  };
+
   const openEditModal = (product: Product) => {
     setEditingProduct(product);
+    setImageFile(null);
     setNewProduct(product);
     setIsProductModalOpen(true);
   };
@@ -389,12 +426,47 @@ export default function App() {
     toast.success("Inventario exportado");
   };
 
-  const exportSales = () => {
-    const ws = XLSX.utils.json_to_sheet(sales);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Ventas");
-    XLSX.writeFile(wb, "Ventas_Biker_Frozz.xlsx");
-    toast.success("Ventas exportadas");
+  const exportSales = async () => {
+    try {
+      const res = await axios.get('/api/reporte_detallado');
+      const allDetails = res.data;
+      
+      const filteredIds = new Set(filteredSales.map(s => s.id));
+      
+      // Hoja 1: Resumen de Ventas
+      const summaryData = filteredSales.map(s => ({
+        'ID Venta': s.id,
+        'Fecha': new Date(s.fecha).toLocaleString('es-ES'),
+        'Monto Total': s.total,
+        'Método de Pago': s.metodo_pago,
+        'Estado': 'Completada'
+      }));
+
+      // Hoja 2: Detalle de Productos
+      const detailsData = allDetails
+        .filter((item: any) => filteredIds.has(item.id))
+        .map((item: any) => ({
+          'ID Venta': item.id,
+          'Producto': item.producto,
+          'Cantidad': item.cantidad,
+          'Subtotal': item.subtotal
+        }));
+
+      const wb = XLSX.utils.book_new();
+      
+      const wsSummary = XLSX.utils.json_to_sheet(summaryData);
+      XLSX.utils.book_append_sheet(wb, wsSummary, "Resumen Ventas");
+      
+      if (detailsData.length > 0) {
+        const wsDetails = XLSX.utils.json_to_sheet(detailsData);
+        XLSX.utils.book_append_sheet(wb, wsDetails, "Detalle Productos");
+      }
+
+      XLSX.writeFile(wb, "Reporte_Completo_Ventas.xlsx");
+      toast.success("Reporte con detalles exportado");
+    } catch (err) {
+      toast.error("Error al exportar reporte");
+    }
   };
 
   if (!isLoggedIn) {
@@ -936,26 +1008,6 @@ export default function App() {
                                ))}
                              </div>
                            </div>
-                           
-                           {metodoPago === 'Efectivo' && (
-                             <div className="grid grid-cols-2 gap-3">
-                               <div className="space-y-2">
-                                 <label className="text-[10px] uppercase font-bold text-muted-foreground tracking-[0.2em] ml-1">Recibido</label>
-                                 <Input 
-                                   type="number" 
-                                   className="bg-secondary/40 border-border h-10 rounded-xl text-xs font-bold focus:ring-primary/20" 
-                                   placeholder="$ 0.00"
-                                   onChange={(e) => setMontoRecibido(Number(e.target.value))}
-                                 />
-                               </div>
-                               <div className="space-y-2">
-                                 <label className="text-[10px] uppercase font-bold text-muted-foreground tracking-[0.2em] ml-1">Cambio</label>
-                                 <div className={`h-10 bg-secondary/40 border border-border rounded-xl flex items-center px-4 text-xs font-black ${cambio < 0 ? 'text-destructive' : 'text-green-600'}`}>
-                                   $ {cambio.toLocaleString()}
-                                 </div>
-                               </div>
-                             </div>
-                           )}
                         </div>
 
                         <Button 
@@ -1064,22 +1116,23 @@ export default function App() {
                     <Card className="sleek-card border-none overflow-hidden">
                       <div className="overflow-x-auto">
                         <Table>
-                        <TableHeader className="bg-secondary/30">
-                          <TableRow className="border-border/50 hover:bg-transparent">
-                            <TableHead className="text-muted-foreground font-bold px-4 lg:px-10 py-4 lg:py-6 text-[9px] lg:text-[10px] uppercase tracking-widest leading-none">Fecha y Hora</TableHead>
-                            <TableHead className="text-muted-foreground font-bold px-4 lg:px-10 py-4 lg:py-6 text-[9px] lg:text-[10px] uppercase tracking-widest leading-none">Venta ID</TableHead>
-                            <TableHead className="text-muted-foreground font-bold px-4 lg:px-10 py-4 lg:py-6 text-[9px] lg:text-[10px] uppercase tracking-widest leading-none">Método</TableHead>
-                            <TableHead className="text-muted-foreground font-bold px-4 lg:px-10 py-4 lg:py-6 text-[9px] lg:text-[10px] uppercase tracking-widest leading-none">Monto Total</TableHead>
-                            <TableHead className="text-right text-muted-foreground font-bold px-4 lg:px-10 py-4 lg:py-6 text-[9px] lg:text-[10px] uppercase tracking-widest leading-none">Estado</TableHead>
-                          </TableRow>
-                        </TableHeader>
+                          <TableHeader className="bg-secondary/30">
+                            <TableRow className="border-border/50 hover:bg-transparent">
+                              <TableHead className="text-muted-foreground font-bold px-4 lg:px-10 py-4 lg:py-6 text-[9px] lg:text-[10px] uppercase tracking-widest leading-none">Fecha y Hora</TableHead>
+                              <TableHead className="text-muted-foreground font-bold px-4 lg:px-10 py-4 lg:py-6 text-[9px] lg:text-[10px] uppercase tracking-widest leading-none">Venta ID</TableHead>
+                              <TableHead className="text-muted-foreground font-bold px-4 lg:px-10 py-4 lg:py-6 text-[9px] lg:text-[10px] uppercase tracking-widest leading-none">Método</TableHead>
+                              <TableHead className="text-muted-foreground font-bold px-4 lg:px-10 py-4 lg:py-6 text-[9px] lg:text-[10px] uppercase tracking-widest leading-none">Monto Total</TableHead>
+                              <TableHead className="text-muted-foreground font-bold px-4 lg:px-10 py-4 lg:py-6 text-[9px] lg:text-[10px] uppercase tracking-widest leading-none text-center">Acciones</TableHead>
+                              <TableHead className="text-right text-muted-foreground font-bold px-4 lg:px-10 py-4 lg:py-6 text-[9px] lg:text-[10px] uppercase tracking-widest leading-none">Estado</TableHead>
+                            </TableRow>
+                          </TableHeader>
                         <TableBody>
                           {filteredSales.length === 0 ? (
                             <TableRow>
-                              <TableCell colSpan={5} className="h-60 text-center text-muted-foreground italic font-medium">No se encontraron ventas en este periodo</TableCell>
+                              <TableCell colSpan={6} className="h-60 text-center text-muted-foreground italic font-medium">No se encontraron ventas en este periodo</TableCell>
                             </TableRow>
                           ) : (
-                            filteredSales.map(s => (
+                            filteredSales.map((s) => (
                               <TableRow key={s.id} className="border-b border-border/30 hover:bg-secondary/10 transition-colors">
                                 <TableCell className="px-4 lg:px-10 py-4 lg:py-6 text-muted-foreground font-bold text-[10px] lg:text-xs uppercase whitespace-nowrap">{new Date(s.fecha).toLocaleString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</TableCell>
                                 <TableCell className="px-4 lg:px-10 py-4 lg:py-6">
@@ -1092,6 +1145,16 @@ export default function App() {
                                    <span className="px-3 py-1 bg-secondary/80 rounded-full border border-border text-[9px] lg:text-[10px] font-black text-foreground uppercase tracking-wider">{s.metodo_pago}</span>
                                 </TableCell>
                                 <TableCell className="px-4 lg:px-10 py-4 lg:py-6 font-black text-foreground text-sm lg:text-xl tracking-tighter">${s.total.toLocaleString()}</TableCell>
+                                <TableCell className="px-4 lg:px-10 py-4 lg:py-6 text-center">
+                                  <Button 
+                                    variant="outline" 
+                                    size="sm" 
+                                    className="h-8 lg:h-9 rounded-xl border-border px-3 lg:px-4 text-[9px] lg:text-[10px] font-black uppercase tracking-widest gap-2 bg-white hover:bg-primary/5 shadow-sm"
+                                    onClick={() => fetchSaleDetails(s.id)}
+                                  >
+                                    <ClipboardList size={14} className="text-primary" /> Ver Detalle
+                                  </Button>
+                                </TableCell>
                                 <TableCell className="px-4 lg:px-10 py-4 lg:py-6 text-right">
                                   <span className="px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider bg-green-500/10 text-green-600">COMPL</span>
                                 </TableCell>
@@ -1169,6 +1232,40 @@ export default function App() {
                       </CardContent>
                     </Card>
                   </div>
+
+                  <Card className="sleek-card border-none mt-8 lg:mt-12 overflow-hidden">
+                    <CardHeader className="p-6 lg:p-10 border-b border-border/50">
+                      <CardTitle className="text-lg lg:text-xl font-black uppercase tracking-tight">Ventas Detalladas por Producto</CardTitle>
+                      <p className="text-xs text-muted-foreground font-medium uppercase tracking-widest mt-1">Desglose total de unidades despachadas</p>
+                    </CardHeader>
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader className="bg-secondary/30">
+                          <TableRow>
+                            <TableHead className="px-6 lg:px-10 py-5 lg:py-7 text-[10px] font-black uppercase tracking-widest leading-none">Producto</TableHead>
+                            <TableHead className="px-6 lg:px-10 py-5 lg:py-7 text-[10px] font-black uppercase tracking-widest leading-none text-right">Cantidad Vendida</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {productSales.length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={2} className="h-40 text-center text-muted-foreground italic font-medium">No se registran ventas para mostrar detalles</TableCell>
+                            </TableRow>
+                          ) : (
+                            productSales.map((ps, idx) => (
+                              <TableRow key={idx} className="border-b border-border/20 group hover:bg-secondary/10 transition-colors">
+                                <TableCell className="px-6 lg:px-10 py-6 lg:py-8 font-black text-xs lg:text-sm uppercase tracking-tight text-foreground">{ps.nombre}</TableCell>
+                                <TableCell className="px-6 lg:px-10 py-6 lg:py-8 text-right font-black text-primary text-xl lg:text-3xl tracking-tighter">
+                                  {ps.total_vendido} 
+                                  <span className="text-[10px] lg:text-xs uppercase text-muted-foreground tracking-widest ml-2 font-black">Unidades</span>
+                                </TableCell>
+                              </TableRow>
+                            ))
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </Card>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -1218,13 +1315,24 @@ export default function App() {
               </div>
             </div>
             <div className="space-y-2">
-              <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest ml-1">URL de Imagen (Opcional)</Label>
-              <Input 
-                placeholder="https://..." 
-                className="h-12 bg-secondary/50 border-border rounded-xl font-medium" 
-                value={newProduct.imagen_url}
-                onChange={(e) => setNewProduct({...newProduct, imagen_url: e.target.value})}
-              />
+              <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest ml-1">Imagen del Producto</Label>
+              <div className="flex flex-col gap-4">
+                <Input 
+                  type="file"
+                  accept="image/*"
+                  className="h-12 bg-secondary/50 border-border rounded-xl font-medium pt-3" 
+                  onChange={(e) => setImageFile(e.target.files?.[0] || null)}
+                />
+                <div className="flex items-center gap-4">
+                  <div className="text-[10px] text-muted-foreground font-bold uppercase">O URL:</div>
+                  <Input 
+                    placeholder="https://..." 
+                    className="h-10 bg-secondary/50 border-border rounded-xl font-medium text-xs" 
+                    value={newProduct.imagen_url}
+                    onChange={(e) => setNewProduct({...newProduct, imagen_url: e.target.value})}
+                  />
+                </div>
+              </div>
             </div>
           </div>
           <DialogFooter>
@@ -1268,6 +1376,7 @@ export default function App() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      
       {/* Delete Sales History Modal */}
       <Dialog open={isDeleteHistoryModalOpen} onOpenChange={setIsDeleteHistoryModalOpen}>
         <DialogContent className="sm:max-w-[400px] rounded-3xl border-none shadow-2xl p-6 lg:p-8 bg-card">
@@ -1298,6 +1407,69 @@ export default function App() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      
+      {/* Sale Details Modal */}
+      <Dialog open={isDetailsModalOpen} onOpenChange={setIsDetailsModalOpen}>
+        <DialogContent className="sm:max-w-[500px] rounded-3xl border-none shadow-2xl p-6 lg:p-8 bg-card">
+          <DialogHeader className="items-center text-center">
+            <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mb-4 text-primary">
+              <ClipboardList size={32} />
+            </div>
+            <DialogTitle className="text-xl font-black uppercase tracking-tight">Detalles de la Venta</DialogTitle>
+            <DialogDescription className="text-muted-foreground font-medium text-sm">
+              Artículos incluidos en la transacción
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="mt-8 space-y-4">
+            {isLoadingDetails ? (
+              <div className="h-40 flex items-center justify-center text-muted-foreground gap-3">
+                <RefreshCcw className="animate-spin" size={24} />
+                <span className="font-black text-xs uppercase tracking-widest">Cargando detalles...</span>
+              </div>
+            ) : (
+              <ScrollArea className="max-h-[350px] pr-4">
+                <div className="space-y-3">
+                  {selectedSaleDetails.map((item, idx) => (
+                    <div key={idx} className="flex items-center justify-between p-4 bg-secondary/50 rounded-2xl border border-border/10">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] font-black uppercase tracking-[0.15em] text-muted-foreground mb-1">Producto</span>
+                        <span className="text-sm font-black text-foreground">{item.producto_nombre}</span>
+                      </div>
+                      <div className="flex items-end gap-6 text-right">
+                        <div className="flex flex-col items-center">
+                          <span className="text-[10px] font-black uppercase tracking-[0.15em] text-muted-foreground mb-1">Cantidad</span>
+                          <span className="text-sm font-bold bg-white px-3 py-1 rounded-lg border border-border shadow-sm">x{item.cantidad}</span>
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-[10px] font-black uppercase tracking-[0.15em] text-muted-foreground mb-1">Subtotal</span>
+                          <span className="text-sm font-black text-primary">${item.subtotal.toLocaleString()}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="pt-4 border-t border-border mt-6">
+                    <div className="flex justify-between items-center px-4">
+                      <span className="text-xs font-black uppercase tracking-widest text-muted-foreground">TOTAL TRANSACCIÓN</span>
+                      <span className="text-2xl font-black tracking-tighter text-foreground">${selectedSaleDetails.reduce((acc, curr) => acc + curr.subtotal, 0).toLocaleString()}</span>
+                    </div>
+                  </div>
+                </div>
+              </ScrollArea>
+            )}
+            
+            <div className="mt-8 pt-4">
+               <Button 
+                className="w-full rounded-2xl h-14 font-black bg-primary text-white hover:bg-primary/90"
+                onClick={() => setIsDetailsModalOpen(false)}
+              >
+                CERRAR VENTANA
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Toaster theme="light" position="top-right" richColors />
     </div>
   );

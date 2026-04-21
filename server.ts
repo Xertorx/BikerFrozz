@@ -1,17 +1,47 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
+import multer from 'multer';
 import { createServer as createViteServer } from 'vite';
 import { pool, initDb } from './api/_db';
+
+// Ensure uploads directory exists
+const uploadsDir = path.join(process.cwd(), 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+// Multer configuration
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/');
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, uniqueSuffix + '-' + file.originalname);
+  }
+});
+
+const upload = multer({ storage: storage });
 
 async function startLocalServer() {
   const app = express();
   app.use(express.json());
   const PORT = Number(process.env.PORT) || 3000;
 
+  // Serve static uploads
+  app.use('/uploads', express.static(uploadsDir));
+
   // Sync DB
   await initDb();
 
   // API Routes (Manual replication of /api lambda logic)
+  app.post('/api/upload', upload.single('image'), (req, res) => {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    const imageUrl = `/uploads/${req.file.filename}`;
+    res.json({ imageUrl });
+  });
+
   app.post('/api/login', async (req, res) => {
     const { username, password } = req.body;
     try {
@@ -85,6 +115,59 @@ async function startLocalServer() {
   app.get('/api/ventas', async (req, res) => {
     try {
       const { rows } = await pool.query("SELECT * FROM ventas ORDER BY fecha DESC");
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/detalles_venta', async (req, res) => {
+    try {
+      const { id } = req.query;
+      if (!id) return res.status(400).json({ error: 'ID de venta requerido' });
+
+      const { rows } = await pool.query(`
+        SELECT dv.*, p.nombre as producto_nombre 
+        FROM detalle_ventas dv 
+        JOIN productos p ON dv.producto_id = p.id 
+        WHERE dv.venta_id = $1
+      `, [id]);
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/reporte_detallado', async (req, res) => {
+    try {
+      const { rows } = await pool.query(`
+        SELECT 
+          v.id, 
+          v.fecha, 
+          v.total as total_venta, 
+          v.metodo_pago,
+          dv.cantidad,
+          p.nombre as producto,
+          dv.subtotal
+        FROM ventas v
+        JOIN detalle_ventas dv ON v.id = dv.venta_id
+        JOIN productos p ON dv.producto_id = p.id
+        ORDER BY v.fecha DESC
+      `);
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/ventas/:id/detalles', async (req, res) => {
+    try {
+      const { rows } = await pool.query(`
+        SELECT dv.*, p.nombre as producto_nombre 
+        FROM detalle_ventas dv 
+        JOIN productos p ON dv.producto_id = p.id 
+        WHERE dv.venta_id = $1
+      `, [req.params.id]);
       res.json(rows);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
