@@ -95,6 +95,10 @@ export default function App() {
   const [filterEndDate, setFilterEndDate] = useState('');
   const [filterSingleDate, setFilterSingleDate] = useState('');
 
+  const [isLoginLoading, setIsLoginLoading] = useState(false);
+  const [isLoginErrorModalOpen, setIsLoginErrorModalOpen] = useState(false);
+  const [loginErrorMessage, setLoginErrorMessage] = useState('');
+
   // Mobile state
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isCartOpen, setIsCartOpen] = useState(false);
@@ -169,18 +173,23 @@ export default function App() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsLoginLoading(true);
     try {
       const res = await axios.post('/api/login', { username, password });
       if (res.data.success) {
         setIsLoggedIn(true);
         toast.success("Bienvenido a Biker Frozz");
       } else {
-        toast.error(res.data.message || "Usuario o contraseña incorrectos");
+        setLoginErrorMessage(res.data.message || "Usuario o contraseña incorrectos");
+        setIsLoginErrorModalOpen(true);
       }
     } catch (err: any) {
-      const errorMsg = err.response?.data?.message || "Error al conectar con el servidor de autenticación";
-      toast.error(errorMsg);
+      const errorMsg = err.response?.data?.message || "Usuario o contraseña inválidos";
+      setLoginErrorMessage(errorMsg);
+      setIsLoginErrorModalOpen(true);
       console.error("Login detail error:", err.response?.data || err);
+    } finally {
+      setIsLoginLoading(false);
     }
   };
 
@@ -431,8 +440,15 @@ export default function App() {
                     onChange={(e) => setPassword(e.target.value)}
                   />
                 </div>
-                <Button type="submit" className="w-full bg-primary hover:bg-primary/90 text-white font-black h-14 rounded-xl shadow-lg shadow-primary/20 transition-all active:scale-[0.98]">
-                  INICIAR SESIÓN
+                <Button 
+                  type="submit" 
+                  disabled={isLoginLoading}
+                  className="w-full bg-primary hover:bg-primary/90 text-white font-black h-14 rounded-xl shadow-lg shadow-primary/20 transition-all active:scale-[0.98] flex items-center justify-center"
+                >
+                  {isLoginLoading ? (
+                    <RefreshCcw className="animate-spin mr-2" size={20} />
+                  ) : null}
+                  {isLoginLoading ? "CARGANDO..." : "INICIAR SESIÓN"}
                 </Button>
               </form>
             </CardContent>
@@ -441,6 +457,30 @@ export default function App() {
             &copy; 2024 Biker Frozz Management System
           </p>
         </motion.div>
+
+        {/* Login Error Modal */}
+        <Dialog open={isLoginErrorModalOpen} onOpenChange={setIsLoginErrorModalOpen}>
+          <DialogContent className="sm:max-w-[400px] rounded-3xl border-none shadow-2xl p-6 lg:p-8 bg-card">
+            <DialogHeader className="items-center text-center">
+              <div className="w-16 h-16 bg-destructive/10 rounded-full flex items-center justify-center mb-4 text-destructive">
+                <AlertTriangle size={32} />
+              </div>
+              <DialogTitle className="text-xl font-black uppercase tracking-tight">Error de Acceso</DialogTitle>
+              <DialogDescription className="text-muted-foreground font-medium text-sm">
+                {loginErrorMessage}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-6">
+              <Button 
+                className="w-full rounded-2xl h-12 font-black bg-primary text-white hover:bg-primary/90"
+                onClick={() => setIsLoginErrorModalOpen(false)}
+              >
+                ENTENDIDO
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+        <Toaster theme="light" position="top-right" richColors />
       </div>
     );
   }
@@ -546,19 +586,19 @@ export default function App() {
             <AnimatePresence mode="wait">
               {activeTab === 'dashboard' && (
                 <motion.div key="dashboard" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-10">
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-8">
                     <StatCard title="Ventas de Hoy" value={`$${todayRevenue.toLocaleString()}`} icon={<TrendingUp className="text-primary" />} />
                     <StatCard title="Transacciones" value={sales.length} icon={<History className="text-primary" />} />
                     <StatCard title="Stock Activo" value={products.length} icon={<Box className="text-primary" />} />
                   </div>
 
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
-                    <div className="lg:col-span-2 space-y-10">
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-10">
+                    <div className="lg:col-span-2 space-y-6 lg:space-y-10">
                       <Card className="sleek-card border-none">
-                        <CardHeader className="flex flex-row items-center justify-between pb-6 border-b border-border/50">
-                          <CardTitle className="text-xl font-bold">Resumen de Ingresos</CardTitle>
+                        <CardHeader className="flex flex-row items-center justify-between p-5 lg:p-6 border-b border-border/50">
+                          <CardTitle className="text-lg lg:text-xl font-bold">Resumen de Ingresos</CardTitle>
                         </CardHeader>
-                        <CardContent className="h-80 pt-10">
+                        <CardContent className="h-64 lg:h-80 pt-6 lg:pt-10">
                           <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={dailySales}>
                               <CartesianGrid strokeDasharray="0" stroke="#f1f3f5" vertical={false} />
@@ -575,65 +615,67 @@ export default function App() {
                       </Card>
 
                       <Card className="sleek-card border-none overflow-hidden">
-                        <CardHeader className="flex flex-row items-center justify-between pb-4 border-b border-border/50">
-                          <CardTitle className="text-xl font-bold">Alertas de Stock Bajo</CardTitle>
-                          <Button variant="link" className="text-primary font-bold" onClick={() => setActiveTab('inventario')}>Gestionar Todo</Button>
+                        <CardHeader className="flex flex-row items-center justify-between p-5 lg:p-6 border-b border-border/50">
+                          <CardTitle className="text-lg lg:text-xl font-bold">Alertas de Stock Bajo</CardTitle>
+                          <Button variant="link" className="text-primary font-bold text-xs" onClick={() => setActiveTab('inventario')}>Ver Todo</Button>
                         </CardHeader>
                         <CardContent className="p-0">
-                          <Table>
-                            <TableHeader className="bg-secondary/30">
-                              <TableRow className="border-border/50 hover:bg-transparent">
-                                <TableHead className="text-muted-foreground font-bold px-8 py-5 text-[10px] uppercase tracking-widest leading-none">Producto</TableHead>
-                                <TableHead className="text-muted-foreground font-bold px-8 py-5 text-[10px] uppercase tracking-widest leading-none">Precio</TableHead>
-                                <TableHead className="text-muted-foreground font-bold px-8 py-5 text-[10px] uppercase tracking-widest leading-none">Stock</TableHead>
-                                <TableHead className="text-muted-foreground font-bold px-8 py-5 text-[10px] uppercase tracking-widest leading-none">Estado</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {products.filter(p => p.stock < 15).slice(0, 6).map(p => (
-                                <TableRow key={p.id} className="border-b border-border/30 hover:bg-secondary/10 transition-colors">
-                                  <TableCell className="px-8 py-5 font-bold text-foreground">
-                                    <div className="flex items-center">
-                                      {p.imagen_url && <img src={p.imagen_url} className="w-8 h-8 rounded-lg mr-3 object-cover border border-border" referrerPolicy="no-referrer" />}
-                                      {p.nombre}
-                                    </div>
-                                  </TableCell>
-                                  <TableCell className="px-8 py-5 font-medium text-muted-foreground">${p.precio.toLocaleString()}</TableCell>
-                                  <TableCell className="px-8 py-5 font-black text-foreground">{p.stock}</TableCell>
-                                  <TableCell className="px-8 py-5">
-                                    <span className={`badge ${p.stock <= 5 ? 'badge-danger' : 'badge-warning'}`}>
-                                      {p.stock === 0 ? 'SIN STOCK' : p.stock <= 5 ? 'CRÍTICO' : 'BAJO'}
-                                    </span>
-                                  </TableCell>
+                          <div className="overflow-x-auto">
+                            <Table>
+                              <TableHeader className="bg-secondary/30">
+                                <TableRow className="border-border/50 hover:bg-transparent">
+                                  <TableHead className="text-muted-foreground font-bold px-4 lg:px-8 py-4 lg:py-5 text-[9px] lg:text-[10px] uppercase tracking-widest leading-none">Producto</TableHead>
+                                  <TableHead className="text-muted-foreground font-bold px-4 lg:px-8 py-4 lg:py-5 text-[9px] lg:text-[10px] uppercase tracking-widest leading-none">Precio</TableHead>
+                                  <TableHead className="text-muted-foreground font-bold px-4 lg:px-8 py-4 lg:py-5 text-[9px] lg:text-[10px] uppercase tracking-widest leading-none">Stock</TableHead>
+                                  <TableHead className="text-muted-foreground font-bold px-4 lg:px-8 py-4 lg:py-5 text-[9px] lg:text-[10px] uppercase tracking-widest leading-none">Estado</TableHead>
                                 </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
+                              </TableHeader>
+                              <TableBody>
+                                {products.filter(p => p.stock < 15).slice(0, 6).map(p => (
+                                  <TableRow key={p.id} className="border-b border-border/30 hover:bg-secondary/10 transition-colors">
+                                    <TableCell className="px-4 lg:px-8 py-4 lg:py-5 font-bold text-foreground text-xs lg:text-sm">
+                                      <div className="flex items-center">
+                                        {p.imagen_url && <img src={p.imagen_url} className="w-6 h-6 lg:w-8 lg:h-8 rounded-lg mr-2 lg:mr-3 object-cover border border-border" referrerPolicy="no-referrer" />}
+                                        <span className="truncate max-w-[100px] lg:max-w-none">{p.nombre}</span>
+                                      </div>
+                                    </TableCell>
+                                    <TableCell className="px-4 lg:px-8 py-4 lg:py-5 font-medium text-muted-foreground text-xs">${p.precio.toLocaleString()}</TableCell>
+                                    <TableCell className="px-4 lg:px-8 py-4 lg:py-5 font-black text-foreground text-xs lg:text-sm">{p.stock}</TableCell>
+                                    <TableCell className="px-4 lg:px-8 py-4 lg:py-5">
+                                      <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider ${p.stock <= 5 ? 'bg-destructive/10 text-destructive' : 'bg-amber-500/10 text-amber-600'}`}>
+                                        {p.stock === 0 ? 'SIN' : p.stock <= 5 ? 'CRÍT' : 'BAJO'}
+                                      </span>
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </div>
                         </CardContent>
                       </Card>
                     </div>
 
-                    <div className="space-y-10">
-                      <Card className="sleek-card border-none bg-primary text-white p-8 flex flex-col gap-6 shadow-xl shadow-primary/30">
+                    <div className="space-y-6 lg:space-y-10">
+                      <Card className="sleek-card border-none bg-primary text-white p-5 lg:p-8 flex flex-col gap-4 lg:gap-6 shadow-xl shadow-primary/30">
                         <div className="flex items-center gap-3">
-                           <div className="bg-white/20 p-2.5 rounded-xl">
-                             <ShoppingCart className="w-6 h-6 text-white" />
+                           <div className="bg-white/20 p-2 rounded-xl">
+                             <ShoppingCart className="w-5 h-5 lg:w-6 lg:h-6 text-white" />
                            </div>
-                           <h2 className="text-xl font-black uppercase tracking-tight">Venta en Curso</h2>
+                           <h2 className="text-lg lg:text-xl font-black uppercase tracking-tight">Venta en Curso</h2>
                         </div>
                         
-                        <div className="bg-white/10 rounded-2xl p-6 flex-1 flex flex-col gap-6 backdrop-blur-sm border border-white/20">
+                        <div className="bg-white/10 rounded-2xl p-4 lg:p-6 flex-1 flex flex-col gap-4 lg:gap-6 backdrop-blur-sm border border-white/20">
                           {cart.length > 0 ? (
-                            <div className="space-y-4">
+                            <div className="space-y-3 lg:space-y-4">
                               {cart.slice(0, 5).map(item => (
-                                <div key={item.id} className="flex justify-between items-center pb-3 border-b border-white/10">
-                                  <div className="flex flex-col">
-                                    <span className="text-[10px] uppercase font-bold text-white/60 tracking-widest">PROD</span>
-                                    <span className="text-sm font-bold truncate max-w-[120px]">{item.nombre}</span>
+                                <div key={item.id} className="flex justify-between items-center pb-2 lg:pb-3 border-b border-white/10">
+                                  <div className="flex flex-col min-w-0">
+                                    <span className="text-[8px] lg:text-[10px] uppercase font-bold text-white/60 tracking-widest">PROD</span>
+                                    <span className="text-xs lg:text-sm font-bold truncate max-w-[100px] lg:max-w-none">{item.nombre}</span>
                                   </div>
-                                  <div className="text-right">
-                                    <span className="text-[10px] uppercase font-bold text-white/60 tracking-widest">SUB</span>
-                                    <div className="text-sm font-black">${(item.precio * item.cantidad).toLocaleString()}</div>
+                                  <div className="text-right flex-shrink-0">
+                                    <span className="text-[8px] lg:text-[10px] uppercase font-bold text-white/60 tracking-widest">SUB</span>
+                                    <div className="text-xs lg:text-sm font-black">${(item.precio * item.cantidad).toLocaleString()}</div>
                                   </div>
                                 </div>
                               ))}
@@ -671,9 +713,9 @@ export default function App() {
                         </div>
                       </Card>
 
-                      <Card className="sleek-card border-none p-8 space-y-6">
-                        <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground">Accesos Directos</h3>
-                        <div className="grid grid-cols-2 gap-4">
+                      <Card className="sleek-card border-none p-5 lg:p-8 space-y-4 lg:space-y-6">
+                        <h3 className="text-[10px] items-center lg:text-sm font-black uppercase tracking-[0.2em] text-muted-foreground">Accesos Directos</h3>
+                        <div className="grid grid-cols-2 lg:grid-cols-2 gap-3 lg:gap-4">
                            <QuickAction icon={<Plus className="w-4 h-4" />} label="Prod" onClick={() => setActiveTab('inventario')} />
                            <QuickAction icon={<Search className="w-4 h-4" />} label="Buscar" onClick={() => setActiveTab('inventario')} />
                            <QuickAction icon={<Download className="w-4 h-4" />} label="Exp" onClick={exportSales} />
@@ -712,40 +754,40 @@ export default function App() {
                       <Table>
                       <TableHeader className="bg-secondary/30">
                         <TableRow className="border-border/50 hover:bg-transparent">
-                          <TableHead className="text-muted-foreground font-bold px-10 py-6 text-[10px] uppercase tracking-widest leading-none">Imagen</TableHead>
-                          <TableHead className="text-muted-foreground font-bold px-10 py-6 text-[10px] uppercase tracking-widest leading-none">Nombre del Producto</TableHead>
-                          <TableHead className="text-muted-foreground font-bold px-10 py-6 text-[10px] uppercase tracking-widest leading-none">Precio</TableHead>
-                          <TableHead className="text-muted-foreground font-bold px-10 py-6 text-[10px] uppercase tracking-widest leading-none">Stock</TableHead>
-                          <TableHead className="text-muted-foreground font-bold px-10 py-6 text-[10px] uppercase tracking-widest leading-none">Estado</TableHead>
-                          <TableHead className="text-right text-muted-foreground font-bold px-10 py-6 text-[10px] uppercase tracking-widest leading-none">Acciones</TableHead>
+                          <TableHead className="text-muted-foreground font-bold px-4 lg:px-10 py-4 lg:py-6 text-[9px] lg:text-[10px] uppercase tracking-widest leading-none">Imagen</TableHead>
+                          <TableHead className="text-muted-foreground font-bold px-4 lg:px-10 py-4 lg:py-6 text-[9px] lg:text-[10px] uppercase tracking-widest leading-none">Nombre del Producto</TableHead>
+                          <TableHead className="text-muted-foreground font-bold px-4 lg:px-10 py-4 lg:py-6 text-[9px] lg:text-[10px] uppercase tracking-widest leading-none">Precio</TableHead>
+                          <TableHead className="text-muted-foreground font-bold px-4 lg:px-10 py-4 lg:py-6 text-[9px] lg:text-[10px] uppercase tracking-widest leading-none">Stock</TableHead>
+                          <TableHead className="text-muted-foreground font-bold px-4 lg:px-10 py-4 lg:py-6 text-[9px] lg:text-[10px] uppercase tracking-widest leading-none">Estado</TableHead>
+                          <TableHead className="text-right text-muted-foreground font-bold px-4 lg:px-10 py-4 lg:py-6 text-[9px] lg:text-[10px] uppercase tracking-widest leading-none">Acciones</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {products.filter(p => p.nombre.toLowerCase().includes(searchTerm.toLowerCase())).map((p) => (
                           <TableRow key={p.id} className="border-b border-border/30 hover:bg-secondary/10 transition-colors">
-                            <TableCell className="px-10 py-6">
-                              <div className="w-14 h-14 rounded-2xl bg-secondary/50 border border-border overflow-hidden shadow-sm">
+                            <TableCell className="px-4 lg:px-10 py-3 lg:py-6">
+                              <div className="w-10 h-10 lg:w-14 lg:h-14 rounded-2xl bg-secondary/50 border border-border overflow-hidden shadow-sm">
                                 {p.imagen_url ? (
                                   <img src={p.imagen_url} className="w-full h-full object-cover" alt={p.nombre} referrerPolicy="no-referrer" />
                                 ) : (
                                   <div className="w-full h-full flex items-center justify-center text-muted-foreground/30">
-                                  <ShoppingCart size={24} strokeWidth={1} />
+                                  <ShoppingCart size={20} lg:size={24} strokeWidth={1} />
                                   </div>
                                 )}
                               </div>
                             </TableCell>
-                            <TableCell className="px-10 py-6">
-                              <div className="font-black text-foreground text-lg tracking-tight uppercase">{p.nombre}</div>
-                              <div className="text-[10px] font-bold text-muted-foreground tracking-widest">REF: {p.id.toString().padStart(6, '0')}</div>
+                            <TableCell className="px-4 lg:px-10 py-3 lg:py-6">
+                              <div className="font-black text-foreground text-sm lg:text-lg tracking-tight uppercase line-clamp-1">{p.nombre}</div>
+                              <div className="text-[8px] lg:text-[10px] font-bold text-muted-foreground tracking-widest">REF: {p.id.toString().padStart(6, '0')}</div>
                             </TableCell>
-                            <TableCell className="px-10 py-6 font-black text-foreground text-lg">${p.precio.toLocaleString()}</TableCell>
-                            <TableCell className="px-10 py-6 font-medium text-foreground">{p.stock} UNIDADES</TableCell>
-                            <TableCell className="px-10 py-6">
-                              <span className={`badge ${p.stock > 10 ? 'badge-success' : p.stock > 0 ? 'badge-warning' : 'badge-danger'}`}>
-                                {p.stock > 10 ? 'ESTABLE' : p.stock > 0 ? 'REPOSICIÓN' : 'SIN STOCK'}
+                            <TableCell className="px-4 lg:px-10 py-3 lg:py-6 font-black text-foreground text-sm lg:text-lg">${p.precio.toLocaleString()}</TableCell>
+                            <TableCell className="px-4 lg:px-10 py-3 lg:py-6 font-medium text-foreground text-xs lg:text-sm">{p.stock} <span className="hidden lg:inline">UNIDADES</span></TableCell>
+                            <TableCell className="px-4 lg:px-10 py-3 lg:py-6">
+                              <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider ${p.stock > 10 ? 'bg-green-500/10 text-green-600' : p.stock > 0 ? 'bg-amber-500/10 text-amber-600' : 'bg-destructive/10 text-destructive'}`}>
+                                {p.stock > 10 ? 'ESTABLE' : p.stock > 0 ? 'REPO' : 'SIN'}
                               </span>
                             </TableCell>
-                            <TableCell className="px-10 py-6 text-right">
+                            <TableCell className="px-4 lg:px-10 py-3 lg:py-6 text-right">
                               <div className="flex items-center justify-end space-x-3">
                                 <Button variant="ghost" size="icon" className="h-12 w-12 hover:bg-secondary rounded-2xl text-muted-foreground transition-all" onClick={() => openEditModal(p)}><RefreshCcw size={18} /></Button>
                                 <Button variant="ghost" size="icon" className="h-12 w-12 hover:bg-destructive/10 hover:text-destructive rounded-2xl text-muted-foreground transition-all" onClick={() => confirmDelete(p)}><Trash2 size={18} /></Button>
@@ -763,7 +805,7 @@ export default function App() {
               {activeTab === 'ventas' && (
                 <motion.div key="ventas" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="grid grid-cols-1 lg:grid-cols-12 gap-10 relative">
                   <div className="lg:col-span-8 space-y-8">
-                    <div className="bg-card p-6 rounded-3xl border border-border shadow-sm mb-6 flex items-center gap-4">
+                    <div className="bg-card p-4 lg:p-6 rounded-3xl border border-border shadow-sm mb-6 flex items-center gap-4">
                       <Search className="text-muted-foreground" size={20} />
                       <Input 
                         placeholder="Buscar producto a vender..." 
@@ -796,15 +838,15 @@ export default function App() {
                                 </div>
                              )}
                           </div>
-                          <CardContent className="p-3 flex flex-col gap-1 bg-white">
-                            <span className="text-[10px] font-black text-foreground uppercase tracking-tight line-clamp-1">{p.nombre}</span>
+                          <CardContent className="p-2 lg:p-3 flex flex-col gap-1 bg-white">
+                            <span className="text-[9px] lg:text-[10px] font-black text-foreground uppercase tracking-tight line-clamp-1">{p.nombre}</span>
                             <div className="flex justify-between items-center mt-0.5">
-                               <div className="flex items-center text-primary font-black text-sm">
-                                 <span className="text-[10px] mr-1 mt-0.5">$</span>
+                               <div className="flex items-center text-primary font-black text-xs lg:text-sm">
+                                 <span className="text-[9px] lg:text-[10px] mr-1 mt-0.5">$</span>
                                  {p.precio.toLocaleString()}
                                </div>
                                <div className="p-1 bg-secondary rounded-md group-hover:bg-primary/10 group-hover:text-primary transition-colors">
-                                 <Plus size={12} />
+                                 <Plus size={10} lg:size={12} />
                                </div>
                             </div>
                           </CardContent>
@@ -955,8 +997,8 @@ export default function App() {
                           <p className="text-sm text-muted-foreground font-medium">Filtra y analiza el historial de transacciones</p>
                         </div>
                         
-                        <div className="flex flex-wrap items-center gap-4">
-                          <div className="bg-secondary/40 p-1.5 rounded-2xl border border-border flex items-center gap-1">
+                        <div className="flex flex-col lg:flex-row items-start lg:items-center gap-4">
+                          <div className="bg-secondary/40 p-1.5 rounded-2xl border border-border flex items-center gap-1 w-full lg:w-auto overflow-x-auto scrollbar-hide">
                             {[
                               { id: 'all', label: 'TODO' },
                               { id: 'day', label: 'HOY' },
@@ -968,7 +1010,7 @@ export default function App() {
                               <button
                                 key={f.id}
                                 onClick={() => setHistoryFilter(f.id as any)}
-                                className={`px-4 py-2 rounded-xl text-[10px] font-black tracking-widest transition-all ${
+                                className={`px-4 py-2 rounded-xl text-[10px] font-black tracking-widest transition-all whitespace-nowrap ${
                                   historyFilter === f.id ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'text-muted-foreground hover:bg-white'
                                 }`}
                               >
@@ -977,41 +1019,43 @@ export default function App() {
                             ))}
                           </div>
                           
-                          {historyFilter === 'specific' && (
-                            <div className="flex items-center gap-2 animate-in fade-in slide-in-from-left-4 duration-300">
-                              <Input 
-                                type="date" 
-                                className="h-11 w-44 bg-white border-border rounded-xl text-xs font-bold"
-                                value={filterSingleDate}
-                                onChange={(e) => setFilterSingleDate(e.target.value)}
-                              />
-                            </div>
-                          )}
+                          <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
+                            {historyFilter === 'specific' && (
+                              <div className="flex items-center gap-2 animate-in fade-in slide-in-from-left-4 duration-300 w-full lg:w-auto">
+                                <Input 
+                                  type="date" 
+                                  className="h-11 w-full lg:w-44 bg-white border-border rounded-xl text-xs font-bold"
+                                  value={filterSingleDate}
+                                  onChange={(e) => setFilterSingleDate(e.target.value)}
+                                />
+                              </div>
+                            )}
 
-                          {historyFilter === 'custom' && (
-                            <div className="flex items-center gap-2 animate-in fade-in slide-in-from-left-4 duration-300">
-                              <Input 
-                                type="date" 
-                                className="h-11 w-40 bg-white border-border rounded-xl text-xs font-bold"
-                                value={filterStartDate}
-                                onChange={(e) => setFilterStartDate(e.target.value)}
-                              />
-                              <span className="text-muted-foreground text-xs font-black">→</span>
-                              <Input 
-                                type="date" 
-                                className="h-11 w-40 bg-white border-border rounded-xl text-xs font-bold"
-                                value={filterEndDate}
-                                onChange={(e) => setFilterEndDate(e.target.value)}
-                              />
-                            </div>
-                          )}
+                            {historyFilter === 'custom' && (
+                              <div className="flex items-center gap-2 animate-in fade-in slide-in-from-left-4 duration-300 w-full lg:w-auto">
+                                <Input 
+                                  type="date" 
+                                  className="h-11 flex-1 lg:w-40 bg-white border-border rounded-xl text-xs font-bold"
+                                  value={filterStartDate}
+                                  onChange={(e) => setFilterStartDate(e.target.value)}
+                                />
+                                <span className="text-muted-foreground text-xs font-black">→</span>
+                                <Input 
+                                  type="date" 
+                                  className="h-11 flex-1 lg:w-40 bg-white border-border rounded-xl text-xs font-bold"
+                                  value={filterEndDate}
+                                  onChange={(e) => setFilterEndDate(e.target.value)}
+                                />
+                              </div>
+                            )}
+                          </div>
                           
-                          <div className="flex items-center gap-3">
-                            <Button variant="outline" className="border-border bg-white hover:bg-secondary rounded-2xl h-12 px-8 font-black text-[10px] tracking-widest uppercase shadow-sm" onClick={exportSales}>
-                              <Download size={16} className="mr-3" /> Exportar
+                          <div className="flex items-center gap-3 w-full lg:w-auto lg:ml-auto">
+                            <Button variant="outline" className="flex-1 lg:flex-none border-border bg-white hover:bg-secondary rounded-2xl h-11 lg:h-12 px-4 lg:px-8 font-black text-[9px] lg:text-[10px] tracking-widest uppercase shadow-sm" onClick={exportSales}>
+                              <Download size={16} className="mr-2 lg:mr-3" /> Exportar
                             </Button>
-                            <Button variant="ghost" className="text-destructive hover:bg-destructive/10 hover:text-destructive rounded-2xl h-12 px-6 font-black text-[10px] tracking-widest uppercase" onClick={() => setIsDeleteHistoryModalOpen(true)}>
-                              <Trash2 size={16} className="mr-3" /> Limpiar Todo
+                            <Button variant="ghost" className="flex-1 lg:flex-none text-destructive hover:bg-destructive/10 hover:text-destructive rounded-2xl h-11 lg:h-12 px-4 lg:px-6 font-black text-[9px] lg:text-[10px] tracking-widest uppercase" onClick={() => setIsDeleteHistoryModalOpen(true)}>
+                              <Trash2 size={16} className="mr-2 lg:mr-3" /> Limpiar Todo
                             </Button>
                           </div>
                         </div>
@@ -1022,11 +1066,11 @@ export default function App() {
                         <Table>
                         <TableHeader className="bg-secondary/30">
                           <TableRow className="border-border/50 hover:bg-transparent">
-                            <TableHead className="text-muted-foreground font-bold px-10 py-6 text-[10px] uppercase tracking-widest leading-none">Fecha y Hora</TableHead>
-                            <TableHead className="text-muted-foreground font-bold px-10 py-6 text-[10px] uppercase tracking-widest leading-none">Venta ID</TableHead>
-                            <TableHead className="text-muted-foreground font-bold px-10 py-6 text-[10px] uppercase tracking-widest leading-none">Método</TableHead>
-                            <TableHead className="text-muted-foreground font-bold px-10 py-6 text-[10px] uppercase tracking-widest leading-none">Monto Total</TableHead>
-                            <TableHead className="text-right text-muted-foreground font-bold px-10 py-6 text-[10px] uppercase tracking-widest leading-none">Estado</TableHead>
+                            <TableHead className="text-muted-foreground font-bold px-4 lg:px-10 py-4 lg:py-6 text-[9px] lg:text-[10px] uppercase tracking-widest leading-none">Fecha y Hora</TableHead>
+                            <TableHead className="text-muted-foreground font-bold px-4 lg:px-10 py-4 lg:py-6 text-[9px] lg:text-[10px] uppercase tracking-widest leading-none">Venta ID</TableHead>
+                            <TableHead className="text-muted-foreground font-bold px-4 lg:px-10 py-4 lg:py-6 text-[9px] lg:text-[10px] uppercase tracking-widest leading-none">Método</TableHead>
+                            <TableHead className="text-muted-foreground font-bold px-4 lg:px-10 py-4 lg:py-6 text-[9px] lg:text-[10px] uppercase tracking-widest leading-none">Monto Total</TableHead>
+                            <TableHead className="text-right text-muted-foreground font-bold px-4 lg:px-10 py-4 lg:py-6 text-[9px] lg:text-[10px] uppercase tracking-widest leading-none">Estado</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -1037,18 +1081,20 @@ export default function App() {
                           ) : (
                             filteredSales.map(s => (
                               <TableRow key={s.id} className="border-b border-border/30 hover:bg-secondary/10 transition-colors">
-                                <TableCell className="px-10 py-6 text-muted-foreground font-bold text-xs uppercase">{new Date(s.fecha).toLocaleString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</TableCell>
-                                <TableCell className="px-10 py-6">
-                                   <div className="flex items-center font-black tracking-tighter text-foreground">
-                                     <RefreshCcw size={14} className="mr-3 text-primary/40" />
+                                <TableCell className="px-4 lg:px-10 py-4 lg:py-6 text-muted-foreground font-bold text-[10px] lg:text-xs uppercase whitespace-nowrap">{new Date(s.fecha).toLocaleString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</TableCell>
+                                <TableCell className="px-4 lg:px-10 py-4 lg:py-6">
+                                   <div className="flex items-center font-black tracking-tighter text-foreground text-xs lg:text-sm">
+                                     <RefreshCcw size={14} className="mr-2 lg:mr-3 text-primary/40" />
                                      #{s.id.toString().padStart(8, '0')}
                                    </div>
                                 </TableCell>
-                                <TableCell className="px-10 py-6">
-                                   <span className="px-4 py-1.5 bg-secondary/80 rounded-full border border-border text-[10px] font-black text-foreground uppercase tracking-wider">{s.metodo_pago}</span>
+                                <TableCell className="px-4 lg:px-10 py-4 lg:py-6 text-xs lg:text-sm">
+                                   <span className="px-3 py-1 bg-secondary/80 rounded-full border border-border text-[9px] lg:text-[10px] font-black text-foreground uppercase tracking-wider">{s.metodo_pago}</span>
                                 </TableCell>
-                                <TableCell className="px-10 py-6 font-black text-foreground text-xl tracking-tighter">${s.total.toLocaleString()}</TableCell>
-                                <TableCell className="px-10 py-6 text-right"><span className="badge badge-success">COMPLETADO</span></TableCell>
+                                <TableCell className="px-4 lg:px-10 py-4 lg:py-6 font-black text-foreground text-sm lg:text-xl tracking-tighter">${s.total.toLocaleString()}</TableCell>
+                                <TableCell className="px-4 lg:px-10 py-4 lg:py-6 text-right">
+                                  <span className="px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider bg-green-500/10 text-green-600">COMPL</span>
+                                </TableCell>
                               </TableRow>
                             ))
                           )}
@@ -1061,31 +1107,31 @@ export default function App() {
               )}
 
               {activeTab === 'analíticas' && (
-                <motion.div key="analíticas" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-10">
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+                <motion.div key="analíticas" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 lg:space-y-10">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-10">
                     <Card className="sleek-card border-none">
-                      <CardHeader className="p-10 border-b border-border/50">
-                        <CardTitle className="text-xl font-bold flex items-center"><TrendingUp className="mr-3 text-primary" /> Productos Estrella</CardTitle>
+                      <CardHeader className="p-6 lg:p-10 border-b border-border/50">
+                        <CardTitle className="text-lg lg:text-xl font-bold flex items-center"><TrendingUp className="mr-3 text-primary" /> Productos Estrella</CardTitle>
                       </CardHeader>
-                      <CardContent className="h-96 p-10">
+                      <CardContent className="h-80 lg:h-96 p-4 lg:p-10">
                         <ResponsiveContainer width="100%" height="100%">
                           <BarChart data={productSales} layout="vertical">
                             <CartesianGrid strokeDasharray="0" stroke="#f1f3f5" horizontal={false} />
-                            <XAxis type="number" stroke="#94a3b8" fontSize={12} axisLine={false} tickLine={false} />
-                            <YAxis dataKey="nombre" type="category" stroke="#1a1a1a" fontSize={12} width={140} axisLine={false} tickLine={false} className="font-bold uppercase tracking-tighter" />
+                            <XAxis type="number" stroke="#94a3b8" fontSize={10} axisLine={false} tickLine={false} />
+                            <YAxis dataKey="nombre" type="category" stroke="#1a1a1a" fontSize={10} width={80} lg:width={140} axisLine={false} tickLine={false} className="font-bold uppercase tracking-tighter" />
                             <Tooltip contentStyle={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
-                            <Bar dataKey="total_vendido" fill="#ff4e00" radius={[0, 10, 10, 0]} barSize={30} />
+                            <Bar dataKey="total_vendido" fill="#ff4e00" radius={[0, 10, 10, 0]} barSize={20} lg:barSize={30} />
                           </BarChart>
                         </ResponsiveContainer>
                       </CardContent>
                     </Card>
 
                     <Card className="sleek-card border-none">
-                      <CardHeader className="p-10 border-b border-border/50">
-                        <CardTitle className="text-xl font-bold flex items-center"><BarChart3 className="mr-3 text-primary" /> Distribución de Ventas</CardTitle>
+                      <CardHeader className="p-6 lg:p-10 border-b border-border/50">
+                        <CardTitle className="text-lg lg:text-xl font-bold flex items-center"><BarChart3 className="mr-3 text-primary" /> Distribución de Ventas</CardTitle>
                       </CardHeader>
-                      <CardContent className="h-96 p-10 flex flex-col items-center justify-center">
-                        <div className="relative w-full h-[280px]">
+                      <CardContent className="h-auto p-6 lg:p-10 flex flex-col items-center justify-center">
+                        <div className="relative w-full h-[240px] lg:h-[280px]">
                           <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
                               <Pie
@@ -1094,8 +1140,10 @@ export default function App() {
                                 nameKey="nombre"
                                 cx="50%"
                                 cy="50%"
-                                innerRadius={80}
-                                outerRadius={110}
+                                innerRadius={60}
+                                outerRadius={80}
+                                lg:innerRadius={80}
+                                lg:outerRadius={110}
                                 paddingAngle={6}
                               >
                                 {productSales.map((entry, index) => (
@@ -1106,15 +1154,15 @@ export default function App() {
                             </PieChart>
                           </ResponsiveContainer>
                           <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                            <span className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.3em]">Total Art.</span>
-                            <span className="text-3xl font-black text-foreground">{productSales.reduce((acc, curr) => acc + Number(curr.total_vendido), 0)}</span>
+                            <span className="text-[8px] lg:text-[10px] font-black text-muted-foreground uppercase tracking-[0.3em]">Total Art.</span>
+                            <span className="text-2xl lg:text-3xl font-black text-foreground">{productSales.reduce((acc, curr) => acc + Number(curr.total_vendido), 0)}</span>
                           </div>
                         </div>
-                        <div className="grid grid-cols-2 w-full gap-4 mt-10">
+                        <div className="grid grid-cols-2 w-full gap-3 lg:gap-4 mt-6 lg:mt-10">
                            {productSales.slice(0, 6).map((entry, index) => (
-                             <div key={index} className="flex items-center space-x-3 p-3 bg-secondary/30 rounded-2xl border border-transparent hover:border-border transition-all">
-                               <div className="w-3.5 h-3.5 rounded-full shrink-0 shadow-sm" style={{ backgroundColor: COLORS[index % COLORS.length] }}></div>
-                               <span className="text-xs font-bold text-foreground uppercase tracking-tighter truncate">{entry.nombre}</span>
+                             <div key={index} className="flex items-center space-x-2 lg:space-x-3 p-2 lg:p-3 bg-secondary/30 rounded-2xl border border-transparent hover:border-border transition-all">
+                               <div className="w-2.5 h-2.5 lg:w-3.5 lg:h-3.5 rounded-full shrink-0 shadow-sm" style={{ backgroundColor: COLORS[index % COLORS.length] }}></div>
+                               <span className="text-[10px] lg:text-xs font-bold text-foreground uppercase tracking-tighter truncate">{entry.nombre}</span>
                              </div>
                            ))}
                         </div>
@@ -1128,7 +1176,7 @@ export default function App() {
         </ScrollArea>
       </div>
       <Dialog open={isProductModalOpen} onOpenChange={setIsProductModalOpen}>
-        <DialogContent className="sm:max-w-[500px] rounded-3xl border-none shadow-2xl p-8 bg-card">
+        <DialogContent className="sm:max-w-[500px] rounded-3xl border-none shadow-2xl p-6 lg:p-8 bg-card">
           <DialogHeader>
             <DialogTitle className="text-2xl font-black uppercase tracking-tight">
               {editingProduct ? 'Editar Producto' : 'Crear Nuevo Producto'}
@@ -1192,7 +1240,7 @@ export default function App() {
 
       {/* Delete Confirmation Modal */}
       <Dialog open={isDeleteModalOpen} onOpenChange={setIsDeleteModalOpen}>
-        <DialogContent className="sm:max-w-[400px] rounded-3xl border-none shadow-2xl p-8 bg-card">
+        <DialogContent className="sm:max-w-[400px] rounded-3xl border-none shadow-2xl p-6 lg:p-8 bg-card">
           <DialogHeader className="items-center text-center">
             <div className="w-16 h-16 bg-destructive/10 rounded-full flex items-center justify-center mb-4 text-destructive">
               <AlertTriangle size={32} />
@@ -1222,7 +1270,7 @@ export default function App() {
       </Dialog>
       {/* Delete Sales History Modal */}
       <Dialog open={isDeleteHistoryModalOpen} onOpenChange={setIsDeleteHistoryModalOpen}>
-        <DialogContent className="sm:max-w-[400px] rounded-3xl border-none shadow-2xl p-8 bg-card">
+        <DialogContent className="sm:max-w-[400px] rounded-3xl border-none shadow-2xl p-6 lg:p-8 bg-card">
           <DialogHeader className="items-center text-center">
             <div className="w-16 h-16 bg-destructive/10 rounded-full flex items-center justify-center mb-4 text-destructive">
               <AlertTriangle size={32} />
@@ -1269,15 +1317,15 @@ function NavItem({ icon, label, active, onClick }: { icon: React.ReactNode, labe
 
 function StatCard({ title, value, icon }: { title: string, value: string | number, icon: React.ReactNode }) {
   return (
-    <Card className="sleek-card border-none p-8 group hover:translate-y-[-4px] transition-all">
-      <div className="flex flex-col gap-6">
+    <Card className="sleek-card border-none p-5 lg:p-8 group hover:translate-y-[-4px] transition-all">
+      <div className="flex flex-col gap-4 lg:gap-6">
         <div className="flex items-center justify-between">
-          <p className="text-[10px] uppercase font-black tracking-[0.2em] text-muted-foreground">{title}</p>
-          <div className="p-3.5 bg-primary/5 rounded-2xl group-hover:bg-primary group-hover:text-white transition-all duration-300">
-            {icon}
+          <p className="text-[9px] lg:text-[10px] uppercase font-black tracking-[0.2em] text-muted-foreground">{title}</p>
+          <div className="p-2.5 lg:p-3.5 bg-primary/5 rounded-2xl group-hover:bg-primary group-hover:text-white transition-all duration-300">
+            {React.cloneElement(icon as React.ReactElement, { size: 18 })}
           </div>
         </div>
-        <h4 className="text-4xl font-black text-foreground tracking-tighter">{value}</h4>
+        <h4 className="text-2xl lg:text-4xl font-black text-foreground tracking-tighter">{value}</h4>
       </div>
     </Card>
   );
@@ -1287,12 +1335,12 @@ function QuickAction({ icon, label, onClick }: { icon: React.ReactNode, label: s
   return (
     <button 
       onClick={onClick}
-      className="flex items-center justify-center flex-col gap-2 p-4 bg-secondary/50 rounded-2xl border border-border hover:border-primary/30 hover:bg-white transition-all group"
+      className="flex items-center justify-center flex-col gap-2 p-3 lg:p-4 bg-secondary/50 rounded-2xl border border-border hover:border-primary/30 hover:bg-white transition-all group"
     >
-      <div className="p-2 bg-white rounded-lg shadow-sm group-hover:text-primary transition-colors">
+      <div className="p-1.5 lg:p-2 bg-white rounded-lg shadow-sm group-hover:text-primary transition-colors">
         {icon}
       </div>
-      <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">{label}</span>
+      <span className="text-[8px] lg:text-[10px] font-black uppercase tracking-widest text-muted-foreground">{label}</span>
     </button>
   );
 }
