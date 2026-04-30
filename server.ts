@@ -72,19 +72,21 @@ async function startLocalServer() {
     }
   });
 
-  app.put('/api/productos/:id', async (req, res) => {
+  app.put('/api/productos', async (req, res) => {
+    const { id } = req.query;
     const { nombre, precio, stock, imagen_url } = req.body;
     try {
-      await pool.query("UPDATE productos SET nombre = $1, precio = $2, stock = $3, imagen_url = $4 WHERE id = $5", [nombre, precio, stock, imagen_url, req.params.id]);
+      await pool.query("UPDATE productos SET nombre = $1, precio = $2, stock = $3, imagen_url = $4 WHERE id = $5", [nombre, precio, stock, imagen_url, id]);
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  app.delete('/api/productos/:id', async (req, res) => {
+  app.delete('/api/productos', async (req, res) => {
+    const { id } = req.query;
     try {
-      await pool.query("UPDATE productos SET activo = FALSE WHERE id = $1", [req.params.id]);
+      await pool.query("UPDATE productos SET activo = FALSE WHERE id = $1", [id]);
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });

@@ -344,7 +344,7 @@ export default function App() {
       const productData = { ...newProduct, imagen_url: finalImageUrl };
 
       if (editingProduct) {
-        await axios.put(`/api/productos/${editingProduct.id}`, productData);
+        await axios.put(`/api/productos?id=${editingProduct.id}`, productData);
         toast.success("Producto actualizado");
       } else {
         await axios.post('/api/productos', productData);
@@ -363,7 +363,7 @@ export default function App() {
   const handleDeleteProduct = async () => {
     if (!productToDelete) return;
     try {
-      await axios.delete(`/api/productos/${productToDelete.id}`);
+      await axios.delete(`/api/productos?id=${productToDelete.id}`);
       toast.success("Producto eliminado correctamente");
       setIsDeleteModalOpen(false);
       setProductToDelete(null);
