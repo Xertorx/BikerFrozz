@@ -17,7 +17,10 @@ import {
   Trash2,
   RefreshCcw,
   Bike,
-  X
+  X,
+  Receipt,
+  Wallet,
+  PiggyBank
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -86,6 +89,21 @@ interface SaleDetail {
   subtotal: number;
 }
 
+interface Gasto {
+  id: number;
+  fecha: string;
+  categoria: string;
+  monto: number;
+  descripcion: string;
+}
+
+interface Balance {
+  ingresos: number;
+  gastos: number;
+  utilidad: number;
+  mes: string;
+}
+
 const COLORS = ['#ff4e00', '#3b82f6', '#00c853', '#ffd600', '#8b5cf6'];
 
 export default function App() {
@@ -120,23 +138,34 @@ export default function App() {
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [imageFile, setImageFile] = useState<File | null>(null);
   const [newProduct, setNewProduct] = useState<Partial<Product>>({
     nombre: '',
     precio: 0,
-    stock: 0,
-    imagen_url: ''
+    stock: 0
   });
 
   // Stats
   const [productSales, setProductSales] = useState<any[]>([]);
   const [dailySales, setDailySales] = useState<any[]>([]);
+  const [posQuantities, setPosQuantities] = useState<Record<number, number>>({});
+  const [gastos, setGastos] = useState<Gasto[]>([]);
+  const [balance, setBalance] = useState<Balance | null>(null);
+  const [isGastosModalOpen, setIsGastosModalOpen] = useState(false);
+  const [isBalanceModalOpen, setIsBalanceModalOpen] = useState(false);
+  const [isGastoDeleteModalOpen, setIsGastoDeleteModalOpen] = useState(false);
+  const [gastoToDelete, setGastoToDelete] = useState<Gasto | null>(null);
+  const [newGasto, setNewGasto] = useState<Partial<Gasto>>({
+    categoria: '',
+    monto: 0,
+    descripcion: ''
+  });
 
   useEffect(() => {
     if (isLoggedIn) {
       fetchProducts();
       fetchSales();
       fetchStats();
+      fetchGastos();
     }
   }, [isLoggedIn]);
 
@@ -153,6 +182,8 @@ export default function App() {
     };
     checkDb();
   }, []);
+
+  const DEFAULT_PRODUCT_IMAGE = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR8QqNvEWskm3bmF987ygPEwHUlfODfVv0gSg&s";
 
   const fetchProducts = async () => {
     try {
@@ -183,6 +214,53 @@ export default function App() {
     }
   };
 
+  const fetchGastos = async () => {
+    try {
+      const res = await axios.get('/api/gastos');
+      setGastos(res.data);
+    } catch (err) {
+      toast.error("Error al cargar gastos");
+    }
+  };
+
+  const fetchBalance = async () => {
+    try {
+      const res = await axios.get('/api/balance');
+      setBalance(res.data);
+      setIsBalanceModalOpen(true);
+    } catch (err) {
+      toast.error("Error al calcular balance");
+    }
+  };
+
+  const handleSaveGasto = async () => {
+    if (!newGasto.categoria || !newGasto.monto) {
+      toast.error("Complete los campos de gasto");
+      return;
+    }
+    try {
+      await axios.post('/api/gastos', newGasto);
+      toast.success("Gasto registrado");
+      setIsGastosModalOpen(false);
+      setNewGasto({ categoria: '', monto: 0, descripcion: '' });
+      fetchGastos();
+    } catch (err) {
+      toast.error("Error al registrar gasto");
+    }
+  };
+
+  const handleDeleteGasto = async () => {
+    if (!gastoToDelete) return;
+    try {
+      await axios.delete(`/api/gastos?id=${gastoToDelete.id}`);
+      toast.success("Gasto eliminado");
+      setIsGastoDeleteModalOpen(false);
+      fetchGastos();
+    } catch (err) {
+      toast.error("Error al eliminar gasto");
+    }
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoginLoading(true);
@@ -205,21 +283,27 @@ export default function App() {
     }
   };
 
-  const addToCart = (product: Product) => {
+  const addToCart = (product: Product, quantity: number = 1) => {
     if (product.stock <= 0) {
       toast.error("Producto sin stock");
       return;
     }
+    
+    const qtyToAdd = Math.max(1, quantity);
+
     setCart(prev => {
       const existing = prev.find(item => item.id === product.id);
-      if (existing) {
-        if (existing.cantidad >= product.stock) {
-          toast.error("Stock insuficiente");
-          return prev;
-        }
-        return prev.map(item => item.id === product.id ? { ...item, cantidad: item.cantidad + 1 } : item);
+      const currentQtyInCart = existing ? existing.cantidad : 0;
+      
+      if (currentQtyInCart + qtyToAdd > product.stock) {
+        toast.error(`Stock insuficiente. Solo quedan ${product.stock - currentQtyInCart} unidades.`);
+        return prev;
       }
-      return [...prev, { ...product, cantidad: 1 }];
+
+      if (existing) {
+        return prev.map(item => item.id === product.id ? { ...item, cantidad: item.cantidad + qtyToAdd } : item);
+      }
+      return [...prev, { ...product, cantidad: qtyToAdd }];
     });
   };
 
@@ -329,19 +413,7 @@ export default function App() {
     }
 
     try {
-      let finalImageUrl = newProduct.imagen_url || '';
-
-      // If there's a file to upload, do it first
-      if (imageFile) {
-        const formData = new FormData();
-        formData.append('image', imageFile);
-        const uploadRes = await axios.post('/api/upload', formData, {
-          headers: { 'Content-Type': 'multipart/form-data' }
-        });
-        finalImageUrl = uploadRes.data.imageUrl;
-      }
-
-      const productData = { ...newProduct, imagen_url: finalImageUrl };
+      const productData = { ...newProduct, imagen_url: DEFAULT_PRODUCT_IMAGE };
 
       if (editingProduct) {
         await axios.put(`/api/productos?id=${editingProduct.id}`, productData);
@@ -352,8 +424,7 @@ export default function App() {
       }
       setIsProductModalOpen(false);
       setEditingProduct(null);
-      setImageFile(null);
-      setNewProduct({ nombre: '', precio: 0, stock: 0, imagen_url: '' });
+      setNewProduct({ nombre: '', precio: 0, stock: 0 });
       fetchProducts();
     } catch (err) {
       toast.error("Error al guardar el producto");
@@ -392,8 +463,7 @@ export default function App() {
 
   const openAddModal = () => {
     setEditingProduct(null);
-    setImageFile(null);
-    setNewProduct({ nombre: '', precio: 0, stock: 0, imagen_url: '' });
+    setNewProduct({ nombre: '', precio: 0, stock: 0 });
     setIsProductModalOpen(true);
   };
 
@@ -413,7 +483,6 @@ export default function App() {
 
   const openEditModal = (product: Product) => {
     setEditingProduct(product);
-    setImageFile(null);
     setNewProduct(product);
     setIsProductModalOpen(true);
   };
@@ -618,6 +687,7 @@ export default function App() {
           <NavItem icon={<Box size={18} />} label="Inventario" active={activeTab === 'inventario'} onClick={() => { setActiveTab('inventario'); setIsMobileMenuOpen(false); }} />
           <NavItem icon={<ShoppingCart size={18} />} label="Punto de Venta" active={activeTab === 'ventas'} onClick={() => { setActiveTab('ventas'); setIsMobileMenuOpen(false); }} />
           <NavItem icon={<History size={18} />} label="Historial" active={activeTab === 'historial'} onClick={() => { setActiveTab('historial'); setIsMobileMenuOpen(false); }} />
+          <NavItem icon={<Receipt size={18} />} label="Gastos" active={activeTab === 'gastos'} onClick={() => { setActiveTab('gastos'); setIsMobileMenuOpen(false); }} />
           <NavItem icon={<BarChart3 size={18} />} label="Estadísticas" active={activeTab === 'analíticas'} onClick={() => { setActiveTab('analíticas'); setIsMobileMenuOpen(false); }} />
         </nav>
 
@@ -790,9 +860,22 @@ export default function App() {
                         <div className="grid grid-cols-2 lg:grid-cols-2 gap-3 lg:gap-4">
                            <QuickAction icon={<Plus className="w-4 h-4" />} label="Prod" onClick={() => setActiveTab('inventario')} />
                            <QuickAction icon={<Search className="w-4 h-4" />} label="Buscar" onClick={() => setActiveTab('inventario')} />
+                           <QuickAction icon={<Receipt className="w-4 h-4" />} label="Gasto" onClick={() => setActiveTab('gastos')} />
+                           <QuickAction icon={<PiggyBank className="w-4 h-4" />} label="Balance" onClick={fetchBalance} />
                            <QuickAction icon={<Download className="w-4 h-4" />} label="Exp" onClick={exportSales} />
                            <QuickAction icon={<History className="w-4 h-4" />} label="Hist" onClick={() => setActiveTab('historial')} />
                         </div>
+                      </Card>
+                      
+                      <Card className="sleek-card border-none p-5 lg:p-8 space-y-4 lg:space-y-6 bg-secondary/20">
+                         <h3 className="text-[10px] items-center lg:text-sm font-black uppercase tracking-[0.2em] text-muted-foreground text-center">Reporte Económico</h3>
+                         <Button 
+                            className="w-full h-14 bg-black text-white hover:bg-black/80 rounded-2xl font-black text-xs space-x-2"
+                            onClick={fetchBalance}
+                         >
+                            <TrendingUp size={18} />
+                            <span>GENERAR BALANCE MENSUAL</span>
+                         </Button>
                       </Card>
                     </div>
                   </div>
@@ -839,20 +922,14 @@ export default function App() {
                           <TableRow key={p.id} className="border-b border-border/30 hover:bg-secondary/10 transition-colors">
                             <TableCell className="px-4 lg:px-10 py-3 lg:py-6">
                               <div className="w-10 h-10 lg:w-14 lg:h-14 rounded-2xl bg-secondary/50 border border-border overflow-hidden shadow-sm">
-                                {p.imagen_url ? (
-                                  <img src={p.imagen_url} className="w-full h-full object-cover" alt={p.nombre} referrerPolicy="no-referrer" />
-                                ) : (
-                                  <div className="w-full h-full flex items-center justify-center text-muted-foreground/30">
-                                  <ShoppingCart size={20} lg:size={24} strokeWidth={1} />
-                                  </div>
-                                )}
+                                <img src={DEFAULT_PRODUCT_IMAGE} className="w-full h-full object-cover" alt={p.nombre} referrerPolicy="no-referrer" />
                               </div>
                             </TableCell>
-                            <TableCell className="px-4 lg:px-10 py-3 lg:py-6">
-                              <div className="font-black text-foreground text-sm lg:text-lg tracking-tight uppercase line-clamp-1">{p.nombre}</div>
-                              <div className="text-[8px] lg:text-[10px] font-bold text-muted-foreground tracking-widest">REF: {p.id.toString().padStart(6, '0')}</div>
+                            <TableCell className="px-4 lg:px-10 py-4 lg:py-8">
+                              <div className="font-black text-foreground text-base lg:text-2xl tracking-tighter uppercase line-clamp-1">{p.nombre}</div>
+                              <div className="text-[9px] lg:text-[11px] font-bold text-muted-foreground tracking-widest mt-1 opacity-70">REF: {p.id.toString().padStart(6, '0')}</div>
                             </TableCell>
-                            <TableCell className="px-4 lg:px-10 py-3 lg:py-6 font-black text-foreground text-sm lg:text-lg">${p.precio.toLocaleString()}</TableCell>
+                            <TableCell className="px-4 lg:px-10 py-4 lg:py-8 font-black text-primary text-base lg:text-2xl tracking-tighter">${p.precio.toLocaleString()}</TableCell>
                             <TableCell className="px-4 lg:px-10 py-3 lg:py-6 font-medium text-foreground text-xs lg:text-sm">{p.stock} <span className="hidden lg:inline">UNIDADES</span></TableCell>
                             <TableCell className="px-4 lg:px-10 py-3 lg:py-6">
                               <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider ${p.stock > 10 ? 'bg-green-500/10 text-green-600' : p.stock > 0 ? 'bg-amber-500/10 text-amber-600' : 'bg-destructive/10 text-destructive'}`}>
@@ -887,43 +964,60 @@ export default function App() {
                       />
                     </div>
                     <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3 lg:gap-4">
-                      {products.filter(p => (p.stock > 0 || true) && p.nombre.toLowerCase().includes(searchTerm.toLowerCase())).map(p => (
-                        <Card 
-                          key={p.id} 
-                          className="sleek-card border-none hover:ring-2 hover:ring-primary/20 cursor-pointer overflow-hidden group transition-all active:scale-[0.98]"
-                          onClick={() => addToCart(p)}
-                        >
-                          <div className="relative h-28 lg:h-32 bg-secondary/20 overflow-hidden">
-                             {p.imagen_url ? (
-                               <img src={p.imagen_url} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" alt={p.nombre} referrerPolicy="no-referrer" />
-                             ) : (
-                               <div className="w-full h-full flex items-center justify-center">
-                                 <ShoppingCart className="w-8 h-8 text-muted-foreground/10 group-hover:text-primary/10 transition-colors" />
+                      {products.filter(p => (p.stock > 0 || true) && p.nombre.toLowerCase().includes(searchTerm.toLowerCase())).map(p => {
+                        const currentQty = posQuantities[p.id] || 1;
+                        return (
+                          <Card 
+                            key={p.id} 
+                            className="sleek-card border-none hover:ring-2 hover:ring-primary/20 overflow-hidden group transition-all"
+                          >
+                            <div 
+                              className="relative h-36 lg:h-44 bg-secondary/20 overflow-hidden cursor-pointer"
+                              onClick={() => addToCart(p, currentQty)}
+                            >
+                               <img src={DEFAULT_PRODUCT_IMAGE} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" alt={p.nombre} referrerPolicy="no-referrer" />
+                               
+                               {/* Price Badge */}
+                               <div className="absolute top-2 right-2 h-7 px-3 bg-black/75 backdrop-blur-md rounded-xl flex items-center shadow-2xl border border-white/20 z-10 transition-transform group-hover:scale-105">
+                                  <span className="text-xs lg:text-sm font-black text-white italic uppercase tracking-tighter">${p.precio.toLocaleString()}</span>
                                </div>
-                             )}
-                             <div className="absolute top-2 right-2 h-6 px-2 bg-black/60 backdrop-blur-md rounded-lg flex items-center shadow-lg border border-white/10">
-                                <span className="text-[10px] font-black text-white italic uppercase tracking-wider">${p.precio.toLocaleString()}</span>
-                             </div>
-                             {p.stock <= 5 && (
-                               <div className="absolute top-2 left-2 h-6 px-2 bg-amber-500 rounded-lg flex items-center shadow-lg border border-amber-600/20">
-                                  <span className="text-[8px] font-black text-black uppercase tracking-wider">{p.stock} LEFT</span>
-                                </div>
-                             )}
-                          </div>
-                          <CardContent className="p-2 lg:p-3 flex flex-col gap-1 bg-white">
-                            <span className="text-[9px] lg:text-[10px] font-black text-foreground uppercase tracking-tight line-clamp-1">{p.nombre}</span>
-                            <div className="flex justify-between items-center mt-0.5">
-                               <div className="flex items-center text-primary font-black text-xs lg:text-sm">
-                                 <span className="text-[9px] lg:text-[10px] mr-1 mt-0.5">$</span>
-                                 {p.precio.toLocaleString()}
+
+                               {/* Name Overlay - Improved typography and padding */}
+                               <div className="absolute bottom-0 left-0 right-0 p-3 lg:p-4 bg-gradient-to-t from-black/95 via-black/60 to-transparent pt-12 text-left">
+                                  <span className="text-[10px] lg:text-[11px] font-black text-white uppercase tracking-[0.05em] leading-[1.2] line-clamp-2 drop-shadow-lg opacity-90 group-hover:opacity-100 transition-opacity">{p.nombre}</span>
                                </div>
-                               <div className="p-1 bg-secondary rounded-md group-hover:bg-primary/10 group-hover:text-primary transition-colors">
-                                 <Plus size={10} lg:size={12} />
-                               </div>
+
+                               {p.stock <= 5 && (
+                                 <div className="absolute top-2 left-2 h-6 px-2 bg-amber-500 rounded-lg flex items-center shadow-lg border border-amber-600/20 z-10">
+                                    <span className="text-[8px] font-black text-black uppercase tracking-wider">{p.stock} LEFT</span>
+                                  </div>
+                               )}
                             </div>
-                          </CardContent>
-                        </Card>
-                      ))}
+                             <CardContent className="p-3 lg:p-4 bg-white border-t border-secondary/30">
+                               <div className="flex items-center gap-2">
+                                <Input 
+                                  type="number" 
+                                  min="1" 
+                                  max={p.stock}
+                                  value={currentQty}
+                                  onChange={(e) => {
+                                    const val = parseInt(e.target.value);
+                                    setPosQuantities(prev => ({ ...prev, [p.id]: isNaN(val) ? 1 : val }));
+                                  }}
+                                  className="h-10 text-xs font-bold text-center p-1 bg-secondary border-none rounded-xl w-14 focus-visible:ring-1 focus-visible:ring-primary/30"
+                                />
+                                <Button 
+                                  size="sm" 
+                                  className="h-10 flex-1 bg-primary hover:bg-primary/90 text-white rounded-xl px-0 shadow-lg shadow-primary/10 transition-all hover:translate-y-[-1px]"
+                                  onClick={() => addToCart(p, currentQty)}
+                                >
+                                  <Plus size={16} className="mr-1" /> <span className="text-[10px] font-black uppercase tracking-tighter">AÑADIR</span>
+                                </Button>
+                               </div>
+                             </CardContent>
+                          </Card>
+                        );
+                      })}
                     </div>
                   </div>
 
@@ -961,7 +1055,7 @@ export default function App() {
                               {cart.map(item => (
                                 <div key={item.id} className="flex items-center justify-between group p-3 bg-white rounded-2xl border border-border shadow-sm hover:border-primary/20 transition-all">
                                   <div className="flex items-center min-w-0">
-                                    {item.imagen_url && <img src={item.imagen_url} className="w-8 h-8 rounded-lg mr-3 object-cover border border-border flex-shrink-0" referrerPolicy="no-referrer" />}
+                                    <img src={DEFAULT_PRODUCT_IMAGE} className="w-8 h-8 rounded-lg mr-3 object-cover border border-border flex-shrink-0" referrerPolicy="no-referrer" />
                                     <div className="flex flex-col min-w-0">
                                       <span className="text-xs font-black text-foreground uppercase tracking-tight truncate">{item.nombre}</span>
                                       <span className="text-[10px] font-bold text-muted-foreground uppercase">{item.cantidad} x ${item.precio.toLocaleString()}</span>
@@ -977,30 +1071,27 @@ export default function App() {
                           )}
                         </div>
                         
-                        <div className="p-6 bg-white border-t border-border shadow-[0_-10px_30px_rgba(0,0,0,0.03)] space-y-4 flex-shrink-0 z-10 w-full">
-                          <div className="space-y-3">
-                            <div className="flex justify-between items-center text-xs">
-                              <span className="text-muted-foreground text-[10px] font-bold uppercase tracking-[0.2em]">Subtotal</span>
-                              <span className="font-bold text-foreground">${totalCart.toLocaleString()}</span>
-                            </div>
-                            <div className="flex justify-between items-center bg-primary/5 p-4 rounded-2xl border border-primary/10">
-                              <span className="text-primary text-[10px] font-black uppercase tracking-[0.2em]">Total a Pagar</span>
-                              <span className="text-2xl lg:text-3xl font-black text-foreground tracking-tighter">${totalCart.toLocaleString()}</span>
-                            </div>
+                        <div className="px-4 py-3 bg-white border-t border-border space-y-2 flex-shrink-0 z-10 w-full">
+                          <div className="flex justify-between items-center text-[10px] px-1">
+                            <span className="text-muted-foreground font-bold uppercase tracking-[0.1em]">Subtotal</span>
+                            <span className="font-black text-foreground">${totalCart.toLocaleString()}</span>
                           </div>
-
+                          <div className="flex justify-between items-center bg-primary/5 p-3 rounded-xl border border-primary/10">
+                            <span className="text-primary text-[9px] font-black uppercase tracking-[0.1em]">Total Final</span>
+                            <span className="text-xl font-black text-foreground tracking-tighter">${totalCart.toLocaleString()}</span>
+                          </div>
                         </div>
 
-                        <div className="space-y-4">
-                           <div className="space-y-3">
-                             <label className="text-[10px] uppercase font-bold text-muted-foreground tracking-[0.2em] ml-1">Método de Pago</label>
-                             <div className="grid grid-cols-3 gap-2">
+                        <div className="flex flex-col items-center py-3 bg-secondary/5 rounded-xl border border-secondary/20 my-2 mx-2">
+                           <div className="space-y-2 w-full max-w-[200px] px-2 text-center">
+                             <label className="text-[9px] uppercase font-black text-muted-foreground tracking-[0.15em]">Método de Pago</label>
+                             <div className="grid grid-cols-3 gap-1">
                                {['Efectivo', 'Nequi', 'Transfer'].map(m => (
                                  <button 
                                    key={m}
                                    onClick={() => setMetodoPago(m)}
-                                   className={`h-10 rounded-xl text-[9px] font-black border transition-all ${
-                                     metodoPago === m ? 'bg-primary/10 border-primary text-primary shadow-sm' : 'bg-secondary/40 border-border text-muted-foreground hover:bg-secondary'
+                                   className={`h-8 rounded-lg text-[8px] font-black border transition-all ${
+                                     metodoPago === m ? 'bg-primary border-primary text-white shadow-md' : 'bg-white border-border text-muted-foreground hover:bg-secondary'
                                    }`}
                                  >
                                    {m.toUpperCase()}
@@ -1268,6 +1359,68 @@ export default function App() {
                   </Card>
                 </motion.div>
               )}
+
+              {activeTab === 'gastos' && (
+                <motion.div key="gastos" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 lg:space-y-10">
+                  <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center bg-card p-6 lg:p-10 rounded-3xl shadow-sm border border-border gap-6">
+                    <div>
+                      <h2 className="text-3xl font-black text-foreground tracking-tight flex items-center"><Receipt className="mr-3 text-primary" /> Gestión de Gastos</h2>
+                      <p className="text-sm text-muted-foreground font-medium mt-1 uppercase tracking-widest">Registre y monitoree sus egresos operativos</p>
+                    </div>
+                    <Button 
+                      onClick={() => setIsGastosModalOpen(true)}
+                      className="bg-primary hover:bg-primary/90 text-white font-black h-14 px-8 rounded-2xl shadow-lg shadow-primary/20 flex items-center gap-2 group transition-all"
+                    >
+                      <Plus size={20} className="group-hover:rotate-90 transition-transform" />
+                      REGISTRAR GASTO
+                    </Button>
+                  </div>
+
+                  <Card className="sleek-card border-none overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader className="bg-secondary/30">
+                          <TableRow className="border-border/50 hover:bg-transparent">
+                            <TableHead className="text-muted-foreground font-bold px-4 lg:px-10 py-4 lg:py-6 text-[9px] lg:text-[10px] uppercase tracking-widest leading-none">Fecha</TableHead>
+                            <TableHead className="text-muted-foreground font-bold px-4 lg:px-10 py-4 lg:py-6 text-[9px] lg:text-[10px] uppercase tracking-widest leading-none">Categoría</TableHead>
+                            <TableHead className="text-muted-foreground font-bold px-4 lg:px-10 py-4 lg:py-6 text-[9px] lg:text-[10px] uppercase tracking-widest leading-none">Descripción</TableHead>
+                            <TableHead className="text-muted-foreground font-bold px-4 lg:px-10 py-4 lg:py-6 text-[9px] lg:text-[10px] uppercase tracking-widest leading-none">Monto</TableHead>
+                            <TableHead className="text-center text-muted-foreground font-bold px-4 lg:px-10 py-4 lg:py-6 text-[9px] lg:text-[10px] uppercase tracking-widest leading-none">Acción</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {gastos.length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={5} className="h-60 text-center text-muted-foreground italic font-medium">No se han registrado gastos aún</TableCell>
+                            </TableRow>
+                          ) : (
+                            gastos.map((g) => (
+                              <TableRow key={g.id} className="border-b border-border/30 hover:bg-secondary/10 transition-colors">
+                                <TableCell className="px-4 lg:px-10 py-4 lg:py-6 text-muted-foreground font-bold text-[10px] lg:text-xs uppercase whitespace-nowrap">{new Date(g.fecha).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}</TableCell>
+                                <TableCell className="px-4 lg:px-10 py-4 lg:py-6 text-xs lg:text-sm">
+                                  <Badge variant="outline" className="bg-secondary/50 font-black text-[9px] lg:text-[10px] uppercase">{g.categoria}</Badge>
+                                </TableCell>
+                                <TableCell className="px-4 lg:px-10 py-4 lg:py-6 text-xs lg:text-sm font-medium text-muted-foreground max-w-[200px] truncate">{g.descripcion}</TableCell>
+                                <TableCell className="px-4 lg:px-10 py-4 lg:py-6 font-black text-destructive text-sm lg:text-lg tracking-tighter">-${g.monto.toLocaleString()}</TableCell>
+                                <TableCell className="px-4 lg:px-10 py-4 lg:py-6 text-center">
+                                  <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    className="h-9 w-9 rounded-xl hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all"
+                                    onClick={() => { setGastoToDelete(g); setIsGastoDeleteModalOpen(true); }}
+                                  >
+                                    <Trash2 size={18} />
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            ))
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </Card>
+                </motion.div>
+              )}
             </AnimatePresence>
           </div>
         </ScrollArea>
@@ -1312,26 +1465,6 @@ export default function App() {
                   value={newProduct.stock}
                   onChange={(e) => setNewProduct({...newProduct, stock: Number(e.target.value)})}
                 />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest ml-1">Imagen del Producto</Label>
-              <div className="flex flex-col gap-4">
-                <Input 
-                  type="file"
-                  accept="image/*"
-                  className="h-12 bg-secondary/50 border-border rounded-xl font-medium pt-3" 
-                  onChange={(e) => setImageFile(e.target.files?.[0] || null)}
-                />
-                <div className="flex items-center gap-4">
-                  <div className="text-[10px] text-muted-foreground font-bold uppercase">O URL:</div>
-                  <Input 
-                    placeholder="https://..." 
-                    className="h-10 bg-secondary/50 border-border rounded-xl font-medium text-xs" 
-                    value={newProduct.imagen_url}
-                    onChange={(e) => setNewProduct({...newProduct, imagen_url: e.target.value})}
-                  />
-                </div>
               </div>
             </div>
           </div>
@@ -1466,6 +1599,125 @@ export default function App() {
                 CERRAR VENTANA
               </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Gastos Management Modal */}
+      <Dialog open={isGastosModalOpen} onOpenChange={setIsGastosModalOpen}>
+        <DialogContent className="sm:max-w-[450px] rounded-3xl border-none shadow-2xl p-6 lg:p-8 bg-card">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-black uppercase tracking-tight flex items-center gap-3">
+              <Receipt className="text-primary" /> Registrar Egreso
+            </DialogTitle>
+            <DialogDescription className="text-muted-foreground font-medium">
+              Ingrese los detalles del gasto operativo de hoy.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-6 py-8">
+            <div className="space-y-2">
+              <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest ml-1">Categoría</Label>
+              <Input 
+                placeholder="Ej. Insumos, Alquiler, Servicios" 
+                className="h-12 bg-secondary/50 border-border rounded-xl font-medium" 
+                value={newGasto.categoria}
+                onChange={(e) => setNewGasto({...newGasto, categoria: e.target.value})}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest ml-1">Monto ($)</Label>
+              <Input 
+                type="number"
+                placeholder="0" 
+                className="h-12 bg-secondary/50 border-border rounded-xl font-medium" 
+                value={newGasto.monto || ''}
+                onChange={(e) => setNewGasto({...newGasto, monto: Number(e.target.value)})}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest ml-1">Descripción (Opcional)</Label>
+              <Input 
+                placeholder="Detalles adicionales..." 
+                className="h-12 bg-secondary/50 border-border rounded-xl font-medium" 
+                value={newGasto.descripcion}
+                onChange={(e) => setNewGasto({...newGasto, descripcion: e.target.value})}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button 
+              className="w-full h-14 bg-primary hover:bg-primary/90 text-white rounded-2xl font-black text-lg transition-all"
+              onClick={handleSaveGasto}
+            >
+              REGISTRAR GASTO
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Gasto Delete Confirmation Modal */}
+      <Dialog open={isGastoDeleteModalOpen} onOpenChange={setIsGastoDeleteModalOpen}>
+        <DialogContent className="sm:max-w-[400px] rounded-3xl border-none shadow-2xl p-6 lg:p-8 bg-card">
+          <DialogHeader className="items-center text-center">
+            <div className="w-16 h-16 bg-destructive/10 rounded-full flex items-center justify-center mb-4 text-destructive">
+              <AlertTriangle size={32} />
+            </div>
+            <DialogTitle className="text-xl font-black uppercase tracking-tight">Eliminar Gasto</DialogTitle>
+            <DialogDescription className="text-muted-foreground font-medium text-sm">
+              ¿Deseas eliminar este registro de gasto de <span className="font-bold text-foreground">"${gastoToDelete?.monto.toLocaleString()}"</span>?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="grid grid-cols-2 gap-4 mt-6">
+            <Button variant="outline" className="rounded-2xl h-12 font-bold" onClick={() => setIsGastoDeleteModalOpen(false)}>CANCELAR</Button>
+            <Button variant="destructive" className="rounded-2xl h-12 font-black shadow-lg shadow-destructive/20" onClick={handleDeleteGasto}>ELIMINAR</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Balance Report Modal */}
+      <Dialog open={isBalanceModalOpen} onOpenChange={setIsBalanceModalOpen}>
+        <DialogContent className="sm:max-w-[500px] rounded-[2.5rem] border-none shadow-2xl p-0 bg-white overflow-hidden">
+          <div className="p-8 lg:p-12 text-center space-y-8">
+            <div className="mx-auto w-20 h-20 bg-primary/10 rounded-3xl flex items-center justify-center text-primary mb-6">
+              <PiggyBank size={40} />
+            </div>
+            <div>
+              <h2 className="text-[10px] font-black uppercase tracking-[0.4em] text-muted-foreground mb-2">REPORTE FINANCIERO</h2>
+              <h3 className="text-4xl font-black text-foreground tracking-tighter uppercase">{balance?.mes}</h3>
+            </div>
+
+            <div className="grid gap-4">
+              <div className="bg-secondary/20 p-6 rounded-3xl border border-border flex justify-between items-center group hover:bg-secondary/40 transition-colors">
+                <div className="text-left">
+                  <p className="text-[10px] font-black uppercase text-muted-foreground tracking-widest">💰 Total Ganado</p>
+                  <p className="text-xs font-bold text-muted-foreground opacity-60">Ingresos por ventas</p>
+                </div>
+                <div className="text-2xl font-black text-green-600 tracking-tighter">${balance?.ingresos.toLocaleString()}</div>
+              </div>
+
+              <div className="bg-secondary/20 p-6 rounded-3xl border border-border flex justify-between items-center group hover:bg-secondary/40 transition-colors">
+                <div className="text-left">
+                  <p className="text-[10px] font-black uppercase text-muted-foreground tracking-widest">💸 Total Gastado</p>
+                  <p className="text-xs font-bold text-muted-foreground opacity-60">Egresos operativos</p>
+                </div>
+                <div className="text-2xl font-black text-destructive tracking-tighter">-${balance?.gastos.toLocaleString()}</div>
+              </div>
+
+              <div className="bg-primary p-8 rounded-3xl border border-primary/20 flex justify-between items-center shadow-xl shadow-primary/20 group hover:scale-[1.02] transition-transform">
+                <div className="text-left">
+                  <p className="text-[10px] font-black uppercase text-white/60 tracking-widest">📈 Utilidad Real</p>
+                  <p className="text-xs font-bold text-white/80">Ganancia neta del mes</p>
+                </div>
+                <div className="text-3xl font-black text-white tracking-tighter">${balance?.utilidad.toLocaleString()}</div>
+              </div>
+            </div>
+
+            <Button 
+              className="w-full h-14 bg-black text-white hover:bg-black/90 rounded-2xl font-black text-xs transition-all"
+              onClick={() => setIsBalanceModalOpen(false)}
+            >
+              CERRAR RESUMEN
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

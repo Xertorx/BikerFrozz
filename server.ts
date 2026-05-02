@@ -210,6 +210,62 @@ async function startLocalServer() {
     }
   });
 
+  // Gastos API
+  app.get('/api/gastos', async (req, res) => {
+    try {
+      const { rows } = await pool.query("SELECT * FROM gastos ORDER BY fecha DESC");
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/gastos', async (req, res) => {
+    const { categoria, monto, descripcion } = req.body;
+    try {
+      await pool.query("INSERT INTO gastos (categoria, monto, descripcion) VALUES ($1, $2, $3)", [categoria, monto, descripcion]);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/gastos', async (req, res) => {
+    const { id } = req.query;
+    try {
+      await pool.query("DELETE FROM gastos WHERE id = $1", [id]);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Balance API
+  app.get('/api/balance', async (req, res) => {
+    try {
+      const monthStart = new Date();
+      monthStart.setDate(1);
+      monthStart.setHours(0, 0, 0, 0);
+
+      const [ingresosRes, gastosRes] = await Promise.all([
+        pool.query("SELECT SUM(total) as total FROM ventas WHERE fecha >= $1", [monthStart]),
+        pool.query("SELECT SUM(monto) as total FROM gastos WHERE fecha >= $1", [monthStart])
+      ]);
+
+      const ingresos = parseFloat(ingresosRes.rows[0].total || '0');
+      const gastos = parseFloat(gastosRes.rows[0].total || '0');
+
+      res.json({
+        ingresos,
+        gastos,
+        utilidad: ingresos - gastos,
+        mes: monthStart.toLocaleString('es-ES', { month: 'long' })
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },
