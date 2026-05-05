@@ -8,6 +8,7 @@ import {
   LayoutDashboard, 
   LogOut, 
   Menu,
+  Settings,
   Plus, 
   Search, 
   ShoppingCart, 
@@ -48,6 +49,8 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import axios from 'axios';
 import * as XLSX from 'xlsx';
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
 
 import { 
   Dialog, 
@@ -104,9 +107,28 @@ interface Balance {
   mes: string;
 }
 
+interface CashSession {
+  id: number;
+  usuario_id: number;
+  fecha_apertura: string;
+  fecha_cierre: string | null;
+  monto_inicial: number;
+  monto_final: number | null;
+  total_ventas: number;
+  comentarios: string | null;
+  estado: 'abierta' | 'cerrada';
+}
+
 const COLORS = ['#ff4e00', '#3b82f6', '#00c853', '#ffd600', '#8b5cf6'];
 
+interface User {
+  id: number;
+  username: string;
+  nombre_negocio?: string;
+}
+
 export default function App() {
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -160,14 +182,71 @@ export default function App() {
     descripcion: ''
   });
 
+  // Cash Session State
+  const [activeSession, setActiveSession] = useState<CashSession | null>(null);
+  const [cashHistory, setCashHistory] = useState<CashSession[]>([]);
+  const [isCashModalOpen, setIsCashModalOpen] = useState(false);
+  const [isCloseCashModalOpen, setIsCloseCashModalOpen] = useState(false);
+  const [initialCashAmount, setInitialCashAmount] = useState(0);
+  const [closeCashAmount, setCloseCashAmount] = useState(0);
+  const [closeCashComments, setCloseCashComments] = useState('');
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+
+  // Settings State
+  const [settingsForm, setSettingsForm] = useState({
+    nombre_negocio: '',
+    password: '',
+    confirmPassword: ''
+  });
+
   useEffect(() => {
-    if (isLoggedIn) {
+    if (currentUser) {
+      setSettingsForm(prev => ({ ...prev, nombre_negocio: currentUser.nombre_negocio || '' }));
+    }
+  }, [currentUser]);
+
+  const handleUpdateProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (settingsForm.password && settingsForm.password !== settingsForm.confirmPassword) {
+      toast.error("Las contraseñas no coinciden");
+      return;
+    }
+
+    try {
+      const res = await axios.put('/api/usuario', {
+        nombre_negocio: settingsForm.nombre_negocio,
+        password: settingsForm.password || undefined
+      });
+      if (res.data.success) {
+        setCurrentUser(res.data.user);
+        toast.success("Perfil actualizado correctamente");
+        setSettingsForm(prev => ({ ...prev, password: '', confirmPassword: '' }));
+      }
+    } catch (err) {
+      toast.error("Error al actualizar el perfil");
+    }
+  };
+
+  useEffect(() => {
+    if (isLoggedIn && currentUser) {
       fetchProducts();
       fetchSales();
       fetchStats();
       fetchGastos();
+      fetchCurrentSession();
     }
-  }, [isLoggedIn]);
+  }, [isLoggedIn, currentUser]);
+
+  // Global Axios Configuration for Multi-tenancy
+  useEffect(() => {
+    const interceptor = axios.interceptors.request.use(config => {
+      if (currentUser) {
+        config.headers['x-user-id'] = currentUser.id.toString();
+      }
+      return config;
+    });
+    return () => axios.interceptors.request.eject(interceptor);
+  }, [currentUser]);
 
   useEffect(() => {
     const checkDb = async () => {
@@ -184,6 +263,15 @@ export default function App() {
   }, []);
 
   const DEFAULT_PRODUCT_IMAGE = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR8QqNvEWskm3bmF987ygPEwHUlfODfVv0gSg&s";
+
+  // Update axios defaults when currentUser changes
+  useEffect(() => {
+    if (currentUser?.id) {
+      axios.defaults.headers.common['x-user-id'] = currentUser.id.toString();
+    } else {
+      delete axios.defaults.headers.common['x-user-id'];
+    }
+  }, [currentUser]);
 
   const fetchProducts = async () => {
     try {
@@ -211,6 +299,60 @@ export default function App() {
       setDailySales(dRes.data);
     } catch (err) {
       toast.error("Error al cargar estadísticas");
+    }
+  };
+
+  const fetchCurrentSession = async () => {
+    try {
+      const res = await axios.get('/api/caja?current=true');
+      setActiveSession(res.data);
+    } catch (err) {
+      console.error("Error fetching current session", err);
+    }
+  };
+
+  const fetchCashHistory = async () => {
+    setIsLoadingHistory(true);
+    try {
+      const res = await axios.get('/api/caja?history=true');
+      setCashHistory(res.data);
+    } catch (err) {
+      toast.error("Error al cargar historial de caja");
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  };
+
+  const handleOpenCash = async () => {
+    try {
+      const res = await axios.post('/api/caja', {
+        action: 'open',
+        monto_inicial: initialCashAmount
+      });
+      setActiveSession(res.data);
+      toast.success("Caja abierta exitosamente");
+      setIsCashModalOpen(false);
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || "Error al abrir la caja");
+    }
+  };
+
+  const handleCloseCash = async () => {
+    if (!activeSession) return;
+    try {
+      const res = await axios.post('/api/caja', {
+        action: 'close',
+        session_id: activeSession.id,
+        monto_final: closeCashAmount,
+        comentarios: closeCashComments
+      });
+      setActiveSession(null);
+      toast.success("Caja cerrada exitosamente");
+      setIsCloseCashModalOpen(false);
+      fetchCashHistory();
+      fetchSales(); // Refresh sales to see linked sessions if needed
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || "Error al cerrar la caja");
     }
   };
 
@@ -261,12 +403,25 @@ export default function App() {
     }
   };
 
+  const handleLogout = () => {
+    setIsLoggedIn(false);
+    setCurrentUser(null);
+    delete axios.defaults.headers.common['x-user-id'];
+    setUsername('');
+    setPassword('');
+    setActiveTab('dashboard');
+    setCart([]);
+    setBalance(null);
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoginLoading(true);
     try {
       const res = await axios.post('/api/login', { username, password });
       if (res.data.success) {
+        axios.defaults.headers.common['x-user-id'] = res.data.user.id.toString();
+        setCurrentUser(res.data.user);
         setIsLoggedIn(true);
         toast.success("Bienvenido a Biker Frozz");
       } else {
@@ -290,20 +445,26 @@ export default function App() {
     }
     
     const qtyToAdd = Math.max(1, quantity);
+    const existingItem = cart.find(item => item.id === product.id);
+    const currentQtyInCart = existingItem ? existingItem.cantidad : 0;
+    
+    if (currentQtyInCart + qtyToAdd > product.stock) {
+      toast.error(`Stock insuficiente. Solo quedan ${product.stock - currentQtyInCart} unidades.`);
+      return;
+    }
 
     setCart(prev => {
       const existing = prev.find(item => item.id === product.id);
-      const currentQtyInCart = existing ? existing.cantidad : 0;
-      
-      if (currentQtyInCart + qtyToAdd > product.stock) {
-        toast.error(`Stock insuficiente. Solo quedan ${product.stock - currentQtyInCart} unidades.`);
-        return prev;
-      }
-
       if (existing) {
         return prev.map(item => item.id === product.id ? { ...item, cantidad: item.cantidad + qtyToAdd } : item);
       }
       return [...prev, { ...product, cantidad: qtyToAdd }];
+    });
+
+    toast.success(`${qtyToAdd} x ${product.nombre} añadido`, {
+      icon: '🛒',
+      position: 'top-right',
+      duration: 1500
     });
   };
 
@@ -382,8 +543,16 @@ export default function App() {
     return true;
   });
 
+  const totalFilteredSales = filteredSales.reduce((acc, s) => acc + s.total, 0);
+
   const handleProcessSale = async () => {
     if (cart.length === 0) return;
+
+    if (!activeSession) {
+      toast.error("Debe abrir la caja antes de realizar una venta");
+      setActiveTab('caja');
+      return;
+    }
 
     try {
       await axios.post('/api/ventas', {
@@ -511,6 +680,17 @@ export default function App() {
         'Estado': 'Completada'
       }));
 
+      // Add total row
+      if (summaryData.length > 0) {
+        summaryData.push({
+          'ID Venta': 'TOTAL',
+          'Fecha': '-',
+          'Monto Total': totalFilteredSales,
+          'Método de Pago': '-',
+          'Estado': '-'
+        } as any);
+      }
+
       // Hoja 2: Detalle de Productos
       const detailsData = allDetails
         .filter((item: any) => filteredIds.has(item.id))
@@ -637,7 +817,7 @@ export default function App() {
               alt="Logo" 
               referrerPolicy="no-referrer"
            />
-           <h1 className="text-lg font-black text-foreground tracking-tighter uppercase italic">BIKER<span className="text-primary italic">FROZZ</span></h1>
+           <h1 className="text-lg font-black text-foreground tracking-tighter uppercase">{currentUser?.nombre_negocio || 'BIKER FROZZ'}</h1>
         </div>
         <div className="flex items-center gap-2">
           {activeTab === 'ventas' && (
@@ -679,16 +859,18 @@ export default function App() {
                 referrerPolicy="no-referrer"
              />
           </div>
-          <h1 className="text-xl font-black text-foreground tracking-tighter uppercase italic">BIKER<span className="text-primary italic">FROZZ</span></h1>
+          <h1 className="text-xl font-black text-foreground tracking-tighter uppercase">{currentUser?.nombre_negocio || 'BIKER FROZZ'}</h1>
         </div>
         
         <nav className="flex-1 px-4 py-8 lg:py-0 space-y-1">
           <NavItem icon={<LayoutDashboard size={18} />} label="Panel de Control" active={activeTab === 'dashboard'} onClick={() => { setActiveTab('dashboard'); setIsMobileMenuOpen(false); }} />
+          <NavItem icon={<Wallet size={18} />} label="Gestión de Caja" active={activeTab === 'caja'} onClick={() => { setActiveTab('caja'); setIsMobileMenuOpen(false); fetchCashHistory(); }} />
           <NavItem icon={<Box size={18} />} label="Inventario" active={activeTab === 'inventario'} onClick={() => { setActiveTab('inventario'); setIsMobileMenuOpen(false); }} />
           <NavItem icon={<ShoppingCart size={18} />} label="Punto de Venta" active={activeTab === 'ventas'} onClick={() => { setActiveTab('ventas'); setIsMobileMenuOpen(false); }} />
           <NavItem icon={<History size={18} />} label="Historial" active={activeTab === 'historial'} onClick={() => { setActiveTab('historial'); setIsMobileMenuOpen(false); }} />
           <NavItem icon={<Receipt size={18} />} label="Gastos" active={activeTab === 'gastos'} onClick={() => { setActiveTab('gastos'); setIsMobileMenuOpen(false); }} />
           <NavItem icon={<BarChart3 size={18} />} label="Estadísticas" active={activeTab === 'analíticas'} onClick={() => { setActiveTab('analíticas'); setIsMobileMenuOpen(false); }} />
+          <NavItem icon={<Settings size={18} />} label="Configuración" active={activeTab === 'configuracion'} onClick={() => { setActiveTab('configuracion'); setIsMobileMenuOpen(false); }} />
         </nav>
 
         <div className="p-4 mt-auto">
@@ -696,7 +878,7 @@ export default function App() {
             <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest">PostgreSQL Ready</p>
             <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest">User: {username}</p>
           </div>
-          <Button variant="ghost" className="w-full justify-start text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-xl font-bold" onClick={() => setIsLoggedIn(false)}>
+          <Button variant="ghost" className="w-full justify-start text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-xl font-bold" onClick={handleLogout}>
             <LogOut size={18} className="mr-2" />
             Cerrar Sesión
           </Button>
@@ -708,12 +890,12 @@ export default function App() {
         <header className="hidden lg:flex h-24 glass-header items-center justify-between px-10">
           <div>
             <h2 className="text-3xl font-black text-foreground tracking-tight capitalize">{activeTab === 'dashboard' ? 'Panel General' : activeTab}</h2>
-            <p className="text-sm text-muted-foreground font-medium">Biker Frozz Gestor de Bar & POS</p>
+            <p className="text-sm text-muted-foreground font-medium">{currentUser?.nombre_negocio || 'Biker Frozz Gestor de Bar & POS'}</p>
           </div>
           <div className="flex items-center space-x-6">
             <div className="flex items-center bg-secondary/80 border border-border px-5 py-2.5 rounded-2xl text-sm font-bold shadow-sm">
               <div className="w-2.5 h-2.5 bg-green-500 rounded-full mr-3 shadow-[0_0_10px_rgba(34,197,94,0.4)] animate-pulse"></div>
-              {username.toUpperCase()}
+              {(currentUser?.nombre_negocio || username).toUpperCase()}
             </div>
           </div>
         </header>
@@ -728,9 +910,15 @@ export default function App() {
             <AnimatePresence mode="wait">
               {activeTab === 'dashboard' && (
                 <motion.div key="dashboard" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-10">
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-8">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-8">
                     <StatCard title="Ventas de Hoy" value={`$${todayRevenue.toLocaleString()}`} icon={<TrendingUp className="text-primary" />} />
                     <StatCard title="Transacciones" value={sales.length} icon={<History className="text-primary" />} />
+                    <StatCard 
+                      title="Caja Activa" 
+                      value={activeSession ? `ABIERTA` : "CERRADA"} 
+                      icon={<Wallet className={activeSession ? "text-green-500" : "text-destructive"} />} 
+                      onClick={() => setActiveTab('caja')}
+                    />
                     <StatCard title="Stock Activo" value={products.length} icon={<Box className="text-primary" />} />
                   </div>
 
@@ -879,6 +1067,147 @@ export default function App() {
                       </Card>
                     </div>
                   </div>
+                </motion.div>
+              )}
+
+              {activeTab === 'caja' && (
+                <motion.div key="caja" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-10">
+                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                      <div className="lg:col-span-1 space-y-6">
+                        <Card className="sleek-card border-none bg-gradient-to-br from-card to-secondary/20">
+                          <CardHeader>
+                            <CardTitle className="text-xl font-black uppercase tracking-tight flex items-center gap-2">
+                              <Wallet className="text-primary" />
+                              Estado de Caja
+                            </CardTitle>
+                            <CardDescription>Gestión de apertura y cierre de turno</CardDescription>
+                          </CardHeader>
+                          <CardContent className="space-y-6">
+                            {activeSession ? (
+                              <div className="p-6 bg-green-500/10 border border-green-500/20 rounded-3xl space-y-4">
+                                <div className="flex justify-between items-center">
+                                  <Badge className="bg-green-500 hover:bg-green-500 text-white font-black px-4 py-1.5 rounded-full">CAJA ABIERTA</Badge>
+                                  <span className="text-xs text-muted-foreground font-mono">ID: #{activeSession.id}</span>
+                                </div>
+                                <div className="space-y-1">
+                                  <p className="text-xs text-muted-foreground uppercase font-bold tracking-widest">Base Inicial</p>
+                                  <p className="text-2xl font-black text-foreground">${activeSession.monto_inicial.toLocaleString()}</p>
+                                </div>
+                                <div className="space-y-1">
+                                  <p className="text-xs text-muted-foreground uppercase font-bold tracking-widest">Abierta el</p>
+                                  <p className="text-sm font-bold text-foreground">
+                                    {format(new Date(activeSession.fecha_apertura), "dd 'de' MMMM, HH:mm", { locale: es })}
+                                  </p>
+                                </div>
+                                <Button 
+                                  className="w-full h-12 rounded-2xl bg-destructive text-white hover:bg-destructive/90 font-black transition-all shadow-lg shadow-destructive/20"
+                                  onClick={() => {
+                                    setCloseCashAmount(0);
+                                    setCloseCashComments('');
+                                    setIsCloseCashModalOpen(true);
+                                  }}
+                                >
+                                  CERRAR CAJA
+                                </Button>
+                              </div>
+                            ) : (
+                              <div className="p-6 bg-secondary/50 border border-border rounded-3xl space-y-4 text-center">
+                                <AlertTriangle className="mx-auto text-muted-foreground" size={40} />
+                                <div className="space-y-1">
+                                  <p className="text-lg font-black text-foreground uppercase tracking-tight">Caja Cerrada</p>
+                                  <p className="text-sm text-muted-foreground font-medium">Debe abrir la caja para registrar ventas.</p>
+                                </div>
+                                <Button 
+                                  className="w-full h-12 rounded-2xl bg-primary text-white hover:bg-primary/90 font-black transition-all shadow-lg shadow-primary/20"
+                                  onClick={() => {
+                                    setInitialCashAmount(0);
+                                    setIsCashModalOpen(true);
+                                  }}
+                                >
+                                  ABRIR CAJA (NUEVO TURNO)
+                                </Button>
+                              </div>
+                            )}
+                          </CardContent>
+                        </Card>
+                      </div>
+
+                      <div className="lg:col-span-2 space-y-6">
+                        <Card className="sleek-card border-none overflow-hidden">
+                          <CardHeader className="flex flex-row items-center justify-between p-6 border-b border-border/50">
+                            <div>
+                              <CardTitle className="text-xl font-black uppercase tracking-tight">Historial de Aperturas</CardTitle>
+                              <CardDescription>Sesiones anteriores y sus cierres</CardDescription>
+                            </div>
+                            <Button variant="ghost" size="icon" onClick={fetchCashHistory}>
+                              <RefreshCcw size={18} className={isLoadingHistory ? "animate-spin" : ""} />
+                            </Button>
+                          </CardHeader>
+                          <CardContent className="p-0">
+                            <ScrollArea className="h-[500px]">
+                              <Table>
+                                <TableHeader className="bg-secondary/30 sticky top-0 z-10">
+                                  <TableRow className="border-border/50">
+                                    <TableHead className="font-bold uppercase text-[10px] tracking-widest text-muted-foreground py-4 px-6">Sesión</TableHead>
+                                    <TableHead className="font-bold uppercase text-[10px] tracking-widest text-muted-foreground py-4 px-6">Apertura / Cierre</TableHead>
+                                    <TableHead className="font-bold uppercase text-[10px] tracking-widest text-muted-foreground py-4 px-6">Montos</TableHead>
+                                    <TableHead className="font-bold uppercase text-[10px] tracking-widest text-muted-foreground py-4 px-6">Ventas</TableHead>
+                                    <TableHead className="font-bold uppercase text-[10px] tracking-widest text-muted-foreground py-4 px-6">Estado</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {cashHistory.map((session) => (
+                                    <TableRow key={session.id} className="border-border/30 hover:bg-secondary/20 transition-colors">
+                                      <TableCell className="px-6 py-4 font-black">#{session.id}</TableCell>
+                                      <TableCell className="px-6 py-4">
+                                        <div className="flex flex-col gap-1">
+                                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                             <Plus size={10} className="text-green-500" />
+                                             {format(new Date(session.fecha_apertura), "dd/MM HH:mm")}
+                                          </div>
+                                          {session.fecha_cierre && (
+                                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                               <X size={10} className="text-destructive" />
+                                               {format(new Date(session.fecha_cierre), "dd/MM HH:mm")}
+                                            </div>
+                                          )}
+                                        </div>
+                                      </TableCell>
+                                      <TableCell className="px-6 py-4">
+                                        <div className="flex flex-col">
+                                          <p className="text-xs text-muted-foreground">Inicia: <span className="text-foreground font-bold font-mono">${session.monto_inicial}</span></p>
+                                          {session.monto_final !== null && (
+                                            <p className="text-xs text-muted-foreground">Cierra: <span className="text-foreground font-bold font-mono">${session.monto_final}</span></p>
+                                          )}
+                                        </div>
+                                      </TableCell>
+                                      <TableCell className="px-6 py-4">
+                                        <div className="flex flex-col">
+                                           <span className="text-primary font-black">${session.total_ventas.toLocaleString()}</span>
+                                           <p className="text-[9px] text-muted-foreground uppercase font-black">Facturado</p>
+                                        </div>
+                                      </TableCell>
+                                      <TableCell className="px-6 py-4">
+                                        <Badge className={`font-black rounded-full text-[9px] px-3 ${
+                                          session.estado === 'abierta' ? 'bg-green-500/10 text-green-500' : 'bg-secondary text-muted-foreground'
+                                        }`}>
+                                          {session.estado.toUpperCase()}
+                                        </Badge>
+                                      </TableCell>
+                                    </TableRow>
+                                  ))}
+                                  {cashHistory.length === 0 && (
+                                    <TableRow>
+                                      <TableCell colSpan={5} className="text-center py-10 text-muted-foreground font-medium italic">No hay registros de caja</TableCell>
+                                    </TableRow>
+                                  )}
+                                </TableBody>
+                              </Table>
+                            </ScrollArea>
+                          </CardContent>
+                        </Card>
+                      </div>
+                   </div>
                 </motion.div>
               )}
 
@@ -1116,19 +1445,23 @@ export default function App() {
 
               {activeTab === 'historial' && (
                 <motion.div key="historial" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8">
-                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                   <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                       <div className="bg-card p-8 rounded-3xl border border-border shadow-sm flex flex-col gap-2">
                         <span className="text-[10px] uppercase font-black tracking-widest text-muted-foreground">Ventas de Hoy</span>
                         <span className="text-3xl font-black text-primary">${todayRevenue.toLocaleString()}</span>
                       </div>
+                      <div className="bg-primary/5 p-8 rounded-3xl border border-primary/20 shadow-sm flex flex-col gap-2">
+                        <span className="text-[10px] uppercase font-black tracking-widest text-primary/70">Total Seleccionado</span>
+                        <span className="text-3xl font-black text-primary">${totalFilteredSales.toLocaleString()}</span>
+                      </div>
                       <div className="bg-card p-8 rounded-3xl border border-border shadow-sm flex flex-col gap-2">
-                        <span className="text-[10px] uppercase font-black tracking-widest text-muted-foreground">Total Transacciones</span>
-                        <span className="text-3xl font-black text-foreground">{sales.length}</span>
+                        <span className="text-[10px] uppercase font-black tracking-widest text-muted-foreground">Transacciones</span>
+                        <span className="text-3xl font-black text-foreground">{filteredSales.length}</span>
                       </div>
                       <div className="bg-card p-8 rounded-3xl border border-border shadow-sm flex flex-col gap-2">
                         <span className="text-[10px] uppercase font-black tracking-widest text-muted-foreground">Última Venta</span>
                         <span className="text-3xl font-black text-foreground">
-                          {sales.length > 0 ? `$${sales[0].total.toLocaleString()}` : '---'}
+                          {filteredSales.length > 0 ? `$${filteredSales[0].total.toLocaleString()}` : '---'}
                         </span>
                       </div>
                    </div>
@@ -1360,6 +1693,83 @@ export default function App() {
                 </motion.div>
               )}
 
+              {activeTab === 'configuracion' && (
+                <motion.div key="configuración" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-w-2xl mx-auto space-y-6 lg:space-y-10">
+                  <Card className="sleek-card border-none overflow-hidden shadow-2xl">
+                    <CardHeader className="bg-gradient-to-r from-primary to-primary/80 text-white p-8 lg:p-12">
+                      <div className="flex items-center space-x-6">
+                        <div className="p-4 bg-white/20 rounded-2xl backdrop-blur-md">
+                          <Settings size={32} className="text-white" />
+                        </div>
+                        <div>
+                          <CardTitle className="text-2xl lg:text-3xl font-black uppercase tracking-tighter">Configuración</CardTitle>
+                          <CardDescription className="text-white/80 font-medium uppercase tracking-widest text-[10px] mt-1">Perfecciona tu identidad de negocio</CardDescription>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="p-8 lg:p-12 bg-card">
+                      <form onSubmit={handleUpdateProfile} className="space-y-8">
+                        <div className="grid grid-cols-1 gap-8">
+                          <div className="space-y-3">
+                            <Label className="text-[10px] uppercase font-black text-muted-foreground tracking-[0.2em] ml-1">Nombre Comercial del Negocio</Label>
+                            <Input 
+                              placeholder="Ej: Biker Frozz Sucursal Norte"
+                              className="bg-secondary/50 border-none h-14 rounded-2xl text-foreground font-bold px-6 focus-visible:ring-primary shadow-inner"
+                              value={settingsForm.nombre_negocio}
+                              onChange={(e) => setSettingsForm({...settingsForm, nombre_negocio: e.target.value})}
+                            />
+                            <p className="text-[10px] text-muted-foreground font-medium italic ml-1">* Este nombre aparecerá en el encabezado y reportes.</p>
+                          </div>
+                          
+                          <div className="h-px bg-border/50 my-2"></div>
+
+                          <div className="space-y-6">
+                            <h3 className="text-xs font-black uppercase tracking-widest text-primary flex items-center">
+                              <X className="mr-2 rotate-45" size={14} /> Cambiar Contraseña 
+                              <span className="text-[9px] text-muted-foreground normal-case font-medium ml-2">(opcional)</span>
+                            </h3>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                              <div className="space-y-3">
+                                <Label className="text-[10px] uppercase font-black text-muted-foreground tracking-[0.2em] ml-1">Nueva Contraseña</Label>
+                                <Input 
+                                  type="password"
+                                  placeholder="••••••••"
+                                  className="bg-secondary/50 border-none h-14 rounded-2xl text-foreground font-bold px-6 focus-visible:ring-primary shadow-inner"
+                                  value={settingsForm.password}
+                                  onChange={(e) => setSettingsForm({...settingsForm, password: e.target.value})}
+                                />
+                              </div>
+                              <div className="space-y-3">
+                                <Label className="text-[10px] uppercase font-black text-muted-foreground tracking-[0.2em] ml-1">Confirmar Contraseña</Label>
+                                <Input 
+                                  type="password"
+                                  placeholder="••••••••"
+                                  className="bg-secondary/50 border-none h-14 rounded-2xl text-foreground font-bold px-6 focus-visible:ring-primary shadow-inner"
+                                  value={settingsForm.confirmPassword}
+                                  onChange={(e) => setSettingsForm({...settingsForm, confirmPassword: e.target.value})}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="pt-6">
+                          <Button 
+                            type="submit" 
+                            className="w-full h-16 bg-primary hover:bg-primary/90 text-white font-black rounded-2xl shadow-xl shadow-primary/30 transition-all hover:scale-[1.02] active:scale-[0.98] text-lg uppercase tracking-wider"
+                          >
+                            GUARDAR CAMBIOS 
+                            <RefreshCcw className="ml-3" size={20} />
+                          </Button>
+                        </div>
+                      </form>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              )}
+
+
               {activeTab === 'gastos' && (
                 <motion.div key="gastos" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 lg:space-y-10">
                   <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center bg-card p-6 lg:p-10 rounded-3xl shadow-sm border border-border gap-6">
@@ -1536,6 +1946,101 @@ export default function App() {
               onClick={handleDeleteHistory}
             >
               ELIMINAR TODO
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Cash Register: Open Session Modal */}
+      <Dialog open={isCashModalOpen} onOpenChange={setIsCashModalOpen}>
+        <DialogContent className="sm:max-w-[450px] rounded-3xl border-none shadow-2xl p-6 lg:p-8 bg-card">
+          <DialogHeader className="items-center text-center">
+            <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mb-4 text-primary">
+              <Plus size={32} />
+            </div>
+            <DialogTitle className="text-2xl font-black uppercase tracking-tight">Abrir Caja</DialogTitle>
+            <DialogDescription className="text-muted-foreground font-medium">
+              Ingresa el monto inicial (base) para comenzar el turno.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-6 py-6">
+            <div className="space-y-4">
+              <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest ml-1">Monto Inicial ($)</Label>
+              <div className="relative">
+                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground font-black font-mono">$</span>
+                 <Input 
+                   type="number"
+                   value={initialCashAmount}
+                   onChange={(e) => setInitialCashAmount(Number(e.target.value))}
+                   className="pl-8 h-14 bg-secondary/50 border-border rounded-2xl font-black text-xl text-primary" 
+                   autoFocus
+                 />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button 
+              className="w-full h-14 bg-primary hover:bg-primary/90 text-white rounded-2xl font-black text-lg transition-all shadow-xl shadow-primary/20"
+              onClick={handleOpenCash}
+            >
+              INICIAR TURNO
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Cash Register: Close Session Modal */}
+      <Dialog open={isCloseCashModalOpen} onOpenChange={setIsCloseCashModalOpen}>
+        <DialogContent className="sm:max-w-[450px] rounded-3xl border-none shadow-2xl p-6 lg:p-8 bg-card">
+          <DialogHeader className="items-center text-center">
+            <div className="w-16 h-16 bg-destructive/10 rounded-full flex items-center justify-center mb-4 text-destructive">
+              <LogOut size={32} />
+            </div>
+            <DialogTitle className="text-2xl font-black uppercase tracking-tight">Cerrar Caja</DialogTitle>
+            <DialogDescription className="text-muted-foreground font-medium">
+              Completa los datos de cierre para finalizar el turno.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-6 py-6 border-y border-border/50 my-2">
+            <div className="flex justify-between items-center px-2">
+                <span className="text-xs uppercase font-black text-muted-foreground tracking-widest">Ventas Estimadas</span>
+                <span className="text-lg font-black text-primary">${todayRevenue.toLocaleString()}</span>
+            </div>
+            <div className="space-y-4">
+              <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest ml-1">Monto de Entrega ($)</Label>
+              <div className="relative">
+                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground font-black font-mono">$</span>
+                 <Input 
+                   type="number"
+                   value={closeCashAmount}
+                   onChange={(e) => setCloseCashAmount(Number(e.target.value))}
+                   className="pl-8 h-14 bg-secondary/50 border-border rounded-2xl font-black text-xl text-destructive" 
+                 />
+              </div>
+            </div>
+            <div className="space-y-4">
+              <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest ml-1">Comentarios / Observaciones</Label>
+              <textarea 
+                className="w-full min-h-[100px] p-4 bg-secondary/50 border border-border rounded-2xl font-medium text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                placeholder="Ej. Faltante de $100 por cambio, o todo conforme."
+                value={closeCashComments}
+                onChange={(e) => setCloseCashComments(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter className="pt-2">
+            <Button 
+                variant="outline"
+                className="rounded-2xl h-14 font-bold border-2"
+                onClick={() => setIsCloseCashModalOpen(false)}
+            >
+                CANCELAR
+            </Button>
+            <Button 
+              className="bg-destructive hover:bg-destructive/90 text-white rounded-2xl h-14 font-black text-lg transition-all shadow-xl shadow-destructive/20 ml-2"
+              onClick={handleCloseCash}
+            >
+              FINALIZAR TURNO
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1739,9 +2244,12 @@ function NavItem({ icon, label, active, onClick }: { icon: React.ReactNode, labe
   );
 }
 
-function StatCard({ title, value, icon }: { title: string, value: string | number, icon: React.ReactNode }) {
+function StatCard({ title, value, icon, onClick }: { title: string, value: string | number, icon: React.ReactNode, onClick?: () => void }) {
   return (
-    <Card className="sleek-card border-none p-5 lg:p-8 group hover:translate-y-[-4px] transition-all">
+    <Card 
+      className={`sleek-card border-none p-5 lg:p-8 group hover:translate-y-[-4px] transition-all ${onClick ? 'cursor-pointer hover:bg-secondary/20' : ''}`}
+      onClick={onClick}
+    >
       <div className="flex flex-col gap-4 lg:gap-6">
         <div className="flex items-center justify-between">
           <p className="text-[9px] lg:text-[10px] uppercase font-black tracking-[0.2em] text-muted-foreground">{title}</p>

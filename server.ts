@@ -36,6 +36,15 @@ async function startLocalServer() {
   await initDb();
 
   // API Routes (Manual replication of /api lambda logic)
+  app.get('/api/health', async (req, res) => {
+    try {
+      await pool.query('SELECT 1');
+      res.json({ database: 'connected', status: 'ok' });
+    } catch (err: any) {
+      res.status(500).json({ database: 'error', error: err.message });
+    }
+  });
+
   app.post('/api/upload', upload.single('image'), (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
     const imageUrl = `/uploads/${req.file.filename}`;
@@ -45,17 +54,91 @@ async function startLocalServer() {
   app.post('/api/login', async (req, res) => {
     const { username, password } = req.body;
     try {
-      const { rows } = await pool.query("SELECT * FROM usuarios WHERE username = $1 AND password = $2", [username, password]);
+      const { rows } = await pool.query("SELECT id, username, nombre_negocio FROM usuarios WHERE username = $1 AND password = $2", [username, password]);
       if (rows.length > 0) return res.json({ success: true, user: rows[0] });
-      res.status(401).json({ success: false, message: 'Invalid credentials' });
+      res.status(401).json({ success: false, message: 'Credenciales inválidas' });
     } catch (err: any) {
       res.status(500).json({ success: false, message: err.message });
     }
   });
 
-  app.get('/api/productos', async (req, res) => {
+  app.put('/api/usuario', async (req, res) => {
+    const userId = req.headers['x-user-id'];
+    const { nombre_negocio, password } = req.body;
     try {
-      const { rows } = await pool.query("SELECT * FROM productos WHERE activo = TRUE ORDER BY nombre ASC");
+      if (password) {
+        await pool.query("UPDATE usuarios SET nombre_negocio = $1, password = $2 WHERE id = $3", [nombre_negocio, password, userId]);
+      } else {
+        await pool.query("UPDATE usuarios SET nombre_negocio = $1 WHERE id = $2", [nombre_negocio, userId]);
+      }
+      const { rows } = await pool.query("SELECT id, username, nombre_negocio FROM usuarios WHERE id = $1", [userId]);
+      res.json({ success: true, user: rows[0] });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/caja', async (req, res) => {
+    const userId = req.headers['x-user-id'];
+    const { current, history } = req.query;
+    try {
+      if (current === 'true') {
+        const { rows } = await pool.query(
+          "SELECT * FROM sesiones_caja WHERE usuario_id = $1 AND estado = 'abierta' ORDER BY fecha_apertura DESC LIMIT 1",
+          [userId]
+        );
+        return res.json(rows[0] || null);
+      }
+      if (history === 'true') {
+        const { rows } = await pool.query(
+          "SELECT * FROM sesiones_caja WHERE usuario_id = $1 ORDER BY fecha_apertura DESC",
+          [userId]
+        );
+        return res.json(rows);
+      }
+      res.status(400).json({ error: 'Faltan parámetros' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/caja', async (req, res) => {
+    const userId = req.headers['x-user-id'];
+    const { action } = req.body;
+    try {
+      if (action === 'open') {
+        const { monto_inicial } = req.body;
+        const openSession = await pool.query(
+          "SELECT id FROM sesiones_caja WHERE usuario_id = $1 AND estado = 'abierta'",
+          [userId]
+        );
+        if (openSession.rows.length > 0) return res.status(400).json({ error: 'Ya existe una sesión abierta' });
+
+        const { rows } = await pool.query(
+          "INSERT INTO sesiones_caja (usuario_id, monto_inicial, estado) VALUES ($1, $2, 'abierta') RETURNING *",
+          [userId, monto_inicial]
+        );
+        return res.json(rows[0]);
+      }
+      if (action === 'close') {
+        const { session_id, monto_final, comentarios } = req.body;
+        const salesRes = await pool.query("SELECT SUM(total) as total FROM ventas WHERE sesion_id = $1", [session_id]);
+        const total_ventas = parseFloat(salesRes.rows[0].total || '0');
+        const { rows } = await pool.query(
+          "UPDATE sesiones_caja SET fecha_cierre = CURRENT_TIMESTAMP, monto_final = $1, total_ventas = $2, comentarios = $3, estado = 'cerrada' WHERE id = $4 AND usuario_id = $5 RETURNING *",
+          [monto_final, total_ventas, comentarios, session_id, userId]
+        );
+        return res.json(rows[0]);
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/productos', async (req, res) => {
+    const userId = req.headers['x-user-id'];
+    try {
+      const { rows } = await pool.query("SELECT * FROM productos WHERE activo = TRUE AND usuario_id = $1 ORDER BY nombre ASC", [userId]);
       res.json(rows);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -63,9 +146,10 @@ async function startLocalServer() {
   });
 
   app.post('/api/productos', async (req, res) => {
+    const userId = req.headers['x-user-id'];
     const { nombre, precio, stock, imagen_url } = req.body;
     try {
-      const { rows } = await pool.query("INSERT INTO productos (nombre, precio, stock, imagen_url) VALUES ($1, $2, $3, $4) RETURNING id", [nombre, precio, stock, imagen_url]);
+      const { rows } = await pool.query("INSERT INTO productos (nombre, precio, stock, imagen_url, usuario_id) VALUES ($1, $2, $3, $4, $5) RETURNING id", [nombre, precio, stock, imagen_url, userId]);
       res.json({ id: rows[0].id });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -74,9 +158,10 @@ async function startLocalServer() {
 
   app.put('/api/productos', async (req, res) => {
     const { id } = req.query;
+    const userId = req.headers['x-user-id'];
     const { nombre, precio, stock, imagen_url } = req.body;
     try {
-      await pool.query("UPDATE productos SET nombre = $1, precio = $2, stock = $3, imagen_url = $4 WHERE id = $5", [nombre, precio, stock, imagen_url, id]);
+      await pool.query("UPDATE productos SET nombre = $1, precio = $2, stock = $3, imagen_url = $4 WHERE id = $5 AND usuario_id = $6", [nombre, precio, stock, imagen_url, id, userId]);
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -85,8 +170,9 @@ async function startLocalServer() {
 
   app.delete('/api/productos', async (req, res) => {
     const { id } = req.query;
+    const userId = req.headers['x-user-id'];
     try {
-      await pool.query("UPDATE productos SET activo = FALSE WHERE id = $1", [id]);
+      await pool.query("UPDATE productos SET activo = FALSE WHERE id = $1 AND usuario_id = $2", [id, userId]);
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -95,10 +181,21 @@ async function startLocalServer() {
 
   app.post('/api/ventas', async (req, res) => {
     const { total, metodo_pago, items } = req.body;
+    const userId = req.headers['x-user-id'];
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      const { rows } = await client.query("INSERT INTO ventas (total, metodo_pago) VALUES ($1, $2) RETURNING id", [total, metodo_pago]);
+      
+      const activeSessionRes = await client.query(
+        "SELECT id FROM sesiones_caja WHERE usuario_id = $1 AND estado = 'abierta' ORDER BY fecha_apertura DESC LIMIT 1",
+        [userId]
+      );
+      const sesionId = activeSessionRes.rows[0]?.id || null;
+
+      const { rows } = await client.query(
+        "INSERT INTO ventas (total, metodo_pago, usuario_id, sesion_id) VALUES ($1, $2, $3, $4) RETURNING id", 
+        [total, metodo_pago, userId, sesionId]
+      );
       const ventaId = rows[0].id;
       for (const item of items) {
         await client.query("INSERT INTO detalle_ventas (venta_id, producto_id, cantidad, subtotal) VALUES ($1, $2, $3, $4)", [ventaId, item.id, item.cantidad, item.precio * item.cantidad]);
@@ -115,8 +212,9 @@ async function startLocalServer() {
   });
 
   app.get('/api/ventas', async (req, res) => {
+    const userId = req.headers['x-user-id'];
     try {
-      const { rows } = await pool.query("SELECT * FROM ventas ORDER BY fecha DESC");
+      const { rows } = await pool.query("SELECT * FROM ventas WHERE usuario_id = $1 ORDER BY fecha DESC", [userId]);
       res.json(rows);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -124,6 +222,7 @@ async function startLocalServer() {
   });
 
   app.get('/api/detalles_venta', async (req, res) => {
+    const userId = req.headers['x-user-id'];
     try {
       const { id } = req.query;
       if (!id) return res.status(400).json({ error: 'ID de venta requerido' });
@@ -132,8 +231,9 @@ async function startLocalServer() {
         SELECT dv.*, p.nombre as producto_nombre 
         FROM detalle_ventas dv 
         JOIN productos p ON dv.producto_id = p.id 
-        WHERE dv.venta_id = $1
-      `, [id]);
+        JOIN ventas v ON dv.venta_id = v.id
+        WHERE dv.venta_id = $1 AND v.usuario_id = $2
+      `, [id, userId]);
       res.json(rows);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -141,6 +241,7 @@ async function startLocalServer() {
   });
 
   app.get('/api/reporte_detallado', async (req, res) => {
+    const userId = req.headers['x-user-id'];
     try {
       const { rows } = await pool.query(`
         SELECT 
@@ -154,8 +255,9 @@ async function startLocalServer() {
         FROM ventas v
         JOIN detalle_ventas dv ON v.id = dv.venta_id
         JOIN productos p ON dv.producto_id = p.id
+        WHERE v.usuario_id = $1
         ORDER BY v.fecha DESC
-      `);
+      `, [userId]);
       res.json(rows);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -163,13 +265,15 @@ async function startLocalServer() {
   });
 
   app.get('/api/ventas/:id/detalles', async (req, res) => {
+    const userId = req.headers['x-user-id'];
     try {
       const { rows } = await pool.query(`
         SELECT dv.*, p.nombre as producto_nombre 
         FROM detalle_ventas dv 
         JOIN productos p ON dv.producto_id = p.id 
-        WHERE dv.venta_id = $1
-      `, [req.params.id]);
+        JOIN ventas v ON dv.venta_id = v.id
+        WHERE dv.venta_id = $1 AND v.usuario_id = $2
+      `, [req.params.id, userId]);
       res.json(rows);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -177,8 +281,16 @@ async function startLocalServer() {
   });
 
   app.get('/api/stats/products', async (req, res) => {
+    const userId = req.headers['x-user-id'];
     try {
-      const { rows } = await pool.query(`SELECT p.nombre, SUM(dv.cantidad) as total_vendido FROM detalle_ventas dv JOIN productos p ON dv.producto_id = p.id GROUP BY p.id, p.nombre ORDER BY total_vendido DESC`);
+      const { rows } = await pool.query(`
+        SELECT p.nombre, SUM(dv.cantidad) as total_vendido 
+        FROM detalle_ventas dv 
+        JOIN productos p ON dv.producto_id = p.id 
+        WHERE p.usuario_id = $1
+        GROUP BY p.id, p.nombre 
+        ORDER BY total_vendido DESC
+      `, [userId]);
       res.json(rows);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -186,8 +298,15 @@ async function startLocalServer() {
   });
 
   app.get('/api/stats/daily', async (req, res) => {
+    const userId = req.headers['x-user-id'];
     try {
-      const { rows } = await pool.query(`SELECT DATE(fecha) as date, SUM(total) as revenue FROM ventas GROUP BY DATE(fecha) ORDER BY date`);
+      const { rows } = await pool.query(`
+        SELECT DATE(fecha) as date, SUM(total) as revenue 
+        FROM ventas 
+        WHERE usuario_id = $1
+        GROUP BY DATE(fecha) 
+        ORDER BY date
+      `, [userId]);
       res.json(rows);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -195,11 +314,13 @@ async function startLocalServer() {
   });
 
   app.delete('/api/ventas', async (req, res) => {
+    const userId = req.headers['x-user-id'];
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      await client.query("DELETE FROM detalle_ventas");
-      await client.query("DELETE FROM ventas");
+      // Subquery to delete only user's details
+      await client.query("DELETE FROM detalle_ventas WHERE venta_id IN (SELECT id FROM ventas WHERE usuario_id = $1)", [userId]);
+      await client.query("DELETE FROM ventas WHERE usuario_id = $1", [userId]);
       await client.query('COMMIT');
       res.json({ success: true });
     } catch (err: any) {
@@ -212,8 +333,9 @@ async function startLocalServer() {
 
   // Gastos API
   app.get('/api/gastos', async (req, res) => {
+    const userId = req.headers['x-user-id'];
     try {
-      const { rows } = await pool.query("SELECT * FROM gastos ORDER BY fecha DESC");
+      const { rows } = await pool.query("SELECT * FROM gastos WHERE usuario_id = $1 ORDER BY fecha DESC", [userId]);
       res.json(rows);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -222,8 +344,9 @@ async function startLocalServer() {
 
   app.post('/api/gastos', async (req, res) => {
     const { categoria, monto, descripcion } = req.body;
+    const userId = req.headers['x-user-id'];
     try {
-      await pool.query("INSERT INTO gastos (categoria, monto, descripcion) VALUES ($1, $2, $3)", [categoria, monto, descripcion]);
+      await pool.query("INSERT INTO gastos (categoria, monto, descripcion, usuario_id) VALUES ($1, $2, $3, $4)", [categoria, monto, descripcion, userId]);
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -232,8 +355,9 @@ async function startLocalServer() {
 
   app.delete('/api/gastos', async (req, res) => {
     const { id } = req.query;
+    const userId = req.headers['x-user-id'];
     try {
-      await pool.query("DELETE FROM gastos WHERE id = $1", [id]);
+      await pool.query("DELETE FROM gastos WHERE id = $1 AND usuario_id = $2", [id, userId]);
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -242,14 +366,15 @@ async function startLocalServer() {
 
   // Balance API
   app.get('/api/balance', async (req, res) => {
+    const userId = req.headers['x-user-id'];
     try {
       const monthStart = new Date();
       monthStart.setDate(1);
       monthStart.setHours(0, 0, 0, 0);
 
       const [ingresosRes, gastosRes] = await Promise.all([
-        pool.query("SELECT SUM(total) as total FROM ventas WHERE fecha >= $1", [monthStart]),
-        pool.query("SELECT SUM(monto) as total FROM gastos WHERE fecha >= $1", [monthStart])
+        pool.query("SELECT SUM(total) as total FROM ventas WHERE fecha >= $1 AND usuario_id = $2", [monthStart, userId]),
+        pool.query("SELECT SUM(monto) as total FROM gastos WHERE fecha >= $1 AND usuario_id = $2", [monthStart, userId])
       ]);
 
       const ingresos = parseFloat(ingresosRes.rows[0].total || '0');

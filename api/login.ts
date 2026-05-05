@@ -14,9 +14,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { username, password } = req.body;
     const client = await pool.connect();
     try {
-      const { rows } = await client.query("SELECT * FROM usuarios WHERE username = $1 AND password = $2", [username, password]);
+      const { rows } = await client.query("SELECT id, username FROM usuarios WHERE username = $1 AND password = $2", [username, password]);
       if (rows.length > 0) {
-        return res.json({ success: true });
+        return res.json({ success: true, user: rows[0] });
       }
       return res.status(401).json({ success: false, message: 'Credenciales inválidas' });
     } finally {

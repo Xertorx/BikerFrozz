@@ -10,6 +10,12 @@ const pool = new Pool({
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const client = await pool.connect();
   try {
+    const userId = req.headers['x-user-id'];
+
+    if (!userId) {
+      return res.status(401).json({ error: 'No user ID provided' });
+    }
+
     if (req.method !== 'GET') {
       return res.status(405).json({ message: 'Method Not Allowed' });
     }
@@ -26,8 +32,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       FROM ventas v
       JOIN detalle_ventas dv ON v.id = dv.venta_id
       JOIN productos p ON dv.producto_id = p.id
+      WHERE v.usuario_id = $1
       ORDER BY v.fecha DESC
-    `);
+    `, [userId]);
     
     return res.json(rows);
   } catch (err: any) {

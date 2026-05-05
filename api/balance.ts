@@ -10,6 +10,12 @@ const pool = new Pool({
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const client = await pool.connect();
   try {
+    const userId = req.headers['x-user-id'];
+
+    if (!userId) {
+      return res.status(401).json({ error: 'No user ID provided' });
+    }
+
     if (req.method !== 'GET') {
       return res.status(405).json({ message: 'Method Not Allowed' });
     }
@@ -19,8 +25,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     monthStart.setHours(0, 0, 0, 0);
 
     const [ingresosRes, gastosRes] = await Promise.all([
-      client.query("SELECT SUM(total) as total FROM ventas WHERE fecha >= $1", [monthStart]),
-      client.query("SELECT SUM(monto) as total FROM gastos WHERE fecha >= $1", [monthStart])
+      client.query("SELECT SUM(total) as total FROM ventas WHERE fecha >= $1 AND usuario_id = $2", [monthStart, userId]),
+      client.query("SELECT SUM(monto) as total FROM gastos WHERE fecha >= $1 AND usuario_id = $2", [monthStart, userId])
     ]);
 
     const ingresos = parseFloat(ingresosRes.rows[0].total || '0');
