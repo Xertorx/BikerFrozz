@@ -536,7 +536,7 @@ export default function App() {
       return;
     }
 
-    if (selectedClientId) {
+    if (currentUser?.id === 302 && selectedClientId) {
       try {
         await axios.post(`/api/clientes/${selectedClientId}/items`, {
           producto_id: product.id,
@@ -1384,62 +1384,64 @@ export default function App() {
 
               {activeTab === 'ventas' && (
                 <motion.div key="ventas" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8">
-                  {/* Client Manager Section */}
-                  <div className="bg-card rounded-3xl border border-border shadow-sm overflow-hidden">
-                    <div className="bg-gradient-to-r from-primary/10 to-transparent p-6 lg:p-8 flex flex-col lg:flex-row items-center gap-6">
-                      <div className="flex-1 w-full">
-                        <form onSubmit={createClientTab} className="flex gap-3">
-                          <div className="relative flex-1">
-                            <Users className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground" size={20} />
-                            <Input 
-                              placeholder="Nombre del Cliente (Ej: Mesa 5, Juan Pérez...)" 
-                              className="h-14 pl-12 bg-white border-none rounded-2xl text-lg font-bold shadow-inner focus-visible:ring-primary"
-                              value={newClientName}
-                              onChange={(e) => setNewClientName(e.target.value)}
-                            />
-                          </div>
-                          <Button 
-                            type="submit"
-                            className="h-14 px-8 bg-black hover:bg-zinc-800 text-white font-black rounded-2xl shadow-xl transition-all active:scale-95"
-                          >
-                            ABRIR CUENTA
-                          </Button>
-                        </form>
-                      </div>
-
-                      <div className="flex items-center gap-2 overflow-x-auto pb-2 w-full lg:w-auto scrollbar-hide">
-                        {activeClients.length > 0 ? (
-                          activeClients.map(client => (
-                            <button
-                              key={client.id}
-                              onClick={() => setSelectedClientId(selectedClientId === client.id ? null : client.id)}
-                              className={`flex-shrink-0 h-14 min-w-[160px] px-5 rounded-2xl border-2 transition-all flex flex-col justify-center items-start relative ${
-                                selectedClientId === client.id 
-                                ? 'bg-primary border-primary text-white shadow-lg shadow-primary/30 scale-105 z-10' 
-                                : 'bg-white border-border text-foreground hover:border-primary/30 hover:bg-secondary/50'
-                              }`}
+                  {/* Client Manager Section - Only for User ID 302 */}
+                  {currentUser?.id === 302 && (
+                    <div className="bg-card rounded-3xl border border-border shadow-sm overflow-hidden">
+                      <div className="bg-gradient-to-r from-primary/10 to-transparent p-6 lg:p-8 flex flex-col lg:flex-row items-center gap-6">
+                        <div className="flex-1 w-full">
+                          <form onSubmit={createClientTab} className="flex gap-3">
+                            <div className="relative flex-1">
+                              <Users className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground" size={20} />
+                              <Input 
+                                placeholder="Nombre del Cliente (Ej: Mesa 5, Juan Pérez...)" 
+                                className="h-14 pl-12 bg-white border-none rounded-2xl text-lg font-bold shadow-inner focus-visible:ring-primary"
+                                value={newClientName}
+                                onChange={(e) => setNewClientName(e.target.value)}
+                              />
+                            </div>
+                            <Button 
+                              type="submit"
+                              className="h-14 px-8 bg-black hover:bg-zinc-800 text-white font-black rounded-2xl shadow-xl transition-all active:scale-95"
                             >
-                              <span className="text-[10px] font-black uppercase tracking-widest opacity-80 mb-0.5">{client.nombre_cliente}</span>
-                              <span className="text-sm font-bold">${(client.total || 0).toLocaleString()}</span>
-                              {selectedClientId === client.id && (
-                                <div className="absolute -top-1 -right-1">
-                                  <div className="bg-green-400 w-3 h-3 rounded-full border-2 border-primary animate-pulse" />
-                                </div>
-                              )}
-                            </button>
-                          ))
-                        ) : (
-                          <div className="h-14 flex items-center px-6 text-sm font-medium text-muted-foreground italic bg-secondary/30 rounded-2xl border border-dashed border-border flex-1">
-                            No hay cuentas abiertas. Ingrese un nombre para empezar.
-                          </div>
-                        )}
+                              ABRIR CUENTA
+                            </Button>
+                          </form>
+                        </div>
+
+                        <div className="flex items-center gap-2 overflow-x-auto pb-2 w-full lg:w-auto scrollbar-hide">
+                          {activeClients.length > 0 ? (
+                            activeClients.map(client => (
+                              <button
+                                key={client.id}
+                                onClick={() => setSelectedClientId(selectedClientId === client.id ? null : client.id)}
+                                className={`flex-shrink-0 h-14 min-w-[160px] px-5 rounded-2xl border-2 transition-all flex flex-col justify-center items-start relative ${
+                                  selectedClientId === client.id 
+                                  ? 'bg-primary border-primary text-white shadow-lg shadow-primary/30 scale-105 z-10' 
+                                  : 'bg-white border-border text-foreground hover:border-primary/30 hover:bg-secondary/50'
+                                }`}
+                              >
+                                <span className="text-[10px] font-black uppercase tracking-widest opacity-80 mb-0.5">{client.nombre_cliente}</span>
+                                <span className="text-sm font-bold">${(client.total || 0).toLocaleString()}</span>
+                                {selectedClientId === client.id && (
+                                  <div className="absolute -top-1 -right-1">
+                                    <div className="bg-green-400 w-3 h-3 rounded-full border-2 border-primary animate-pulse" />
+                                  </div>
+                                )}
+                              </button>
+                            ))
+                          ) : (
+                            <div className="h-14 flex items-center px-6 text-sm font-medium text-muted-foreground italic bg-secondary/30 rounded-2xl border border-dashed border-border flex-1">
+                              No hay cuentas abiertas. Ingrese un nombre para empezar.
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  )}
 
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 relative">
                     <div className="lg:col-span-8 space-y-8">
-                      {selectedClientId && (
+                      {currentUser?.id === 302 && selectedClientId && (
                         <div className="bg-primary/5 p-4 rounded-2xl border border-primary/20 flex items-center justify-between">
                           <div className="flex items-center gap-3">
                             <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center text-white shadow-lg">
