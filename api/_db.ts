@@ -26,6 +26,20 @@ export async function initDb() {
         password TEXT,
         nombre_negocio TEXT
       );
+      CREATE TABLE IF NOT EXISTS clientes_activos (
+        id SERIAL PRIMARY KEY,
+        usuario_id INTEGER REFERENCES usuarios(id),
+        nombre_cliente TEXT NOT NULL,
+        fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        activo BOOLEAN DEFAULT TRUE
+      );
+      CREATE TABLE IF NOT EXISTS items_cliente (
+        id SERIAL PRIMARY KEY,
+        cliente_id INTEGER REFERENCES clientes_activos(id),
+        producto_id INTEGER REFERENCES productos(id),
+        cantidad INTEGER NOT NULL,
+        precio_unitario DECIMAL(10,2) NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS sesiones_caja (
         id SERIAL PRIMARY KEY,
         usuario_id INTEGER REFERENCES usuarios(id),

@@ -21,7 +21,9 @@ import {
   X,
   Receipt,
   Wallet,
-  PiggyBank
+  PiggyBank,
+  Users,
+  ArrowRight
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -127,6 +129,21 @@ interface User {
   nombre_negocio?: string;
 }
 
+interface ActiveClient {
+  id: number;
+  nombre_cliente: string;
+  fecha_creacion: string;
+  total: number;
+}
+
+interface ClientItem {
+  id: number;
+  producto_id: number;
+  nombre: string;
+  cantidad: number;
+  precio_unitario: number;
+}
+
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -136,6 +153,14 @@ export default function App() {
   const [products, setProducts] = useState<Product[]>([]);
   const [sales, setSales] = useState<Sale[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
+  
+  // Client Tabs State
+  const [activeClients, setActiveClients] = useState<ActiveClient[]>([]);
+  const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
+  const [newClientName, setNewClientName] = useState('');
+  const [isClientPaymentModalOpen, setIsClientPaymentModalOpen] = useState(false);
+  const [selectedClientItems, setSelectedClientItems] = useState<ClientItem[]>([]);
+  const [isProcessingClientSale, setIsProcessingClientSale] = useState(false);
   const [metodoPago, setMetodoPago] = useState('Efectivo');
   const [searchTerm, setSearchTerm] = useState('');
   const [historyFilter, setHistoryFilter] = useState<'all' | 'day' | 'week' | 'month' | 'specific' | 'custom'>('all');
@@ -234,6 +259,7 @@ export default function App() {
       fetchStats();
       fetchGastos();
       fetchCurrentSession();
+      fetchActiveClients();
     }
   }, [isLoggedIn, currentUser]);
 
@@ -279,6 +305,63 @@ export default function App() {
       setProducts(res.data);
     } catch (err) {
       toast.error("Error al cargar productos");
+    }
+  };
+
+  const fetchActiveClients = async () => {
+    try {
+      const res = await axios.get('/api/clientes');
+      setActiveClients(res.data);
+    } catch (err) {
+      console.error('Error al cargar clientes:', err);
+    }
+  };
+
+  const createClientTab = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newClientName.trim()) return;
+    try {
+      const res = await axios.post('/api/clientes', { nombre: newClientName });
+      setActiveClients([res.data, ...activeClients]);
+      setNewClientName('');
+      setSelectedClientId(res.data.id);
+      toast.success(`Cuenta abierta para: ${res.data.nombre_cliente}`);
+    } catch (err) {
+      toast.error('Error al crear cliente');
+    }
+  };
+
+  const handlePayClientTab = async (metodo: string) => {
+    if (!selectedClientId) return;
+    setIsProcessingClientSale(true);
+    try {
+      const client = activeClients.find(c => c.id === selectedClientId);
+      const res = await axios.post(`/api/clientes/${selectedClientId}/vender`, {
+        total: client?.total,
+        metodo_pago: metodo
+      });
+      if (res.data.success) {
+        toast.success('Venta registrada correctamente');
+        setIsClientPaymentModalOpen(false);
+        setSelectedClientId(null);
+        fetchActiveClients();
+        fetchProducts(); // Refresh stock
+        fetchSales(); // Refresh history
+      }
+    } catch (err) {
+      toast.error('Error al procesar el pago');
+    } finally {
+      setIsProcessingClientSale(false);
+    }
+  };
+
+  const fetchClientResumen = async (clientId: number) => {
+    try {
+      const res = await axios.get(`/api/clientes/${clientId}/items`);
+      setSelectedClientItems(res.data);
+      setIsClientPaymentModalOpen(true);
+    } catch (err) {
+      toast.error('Error al obtener el resumen');
     }
   };
 
@@ -438,7 +521,7 @@ export default function App() {
     }
   };
 
-  const addToCart = (product: Product, quantity: number = 1) => {
+  const addToCart = async (product: Product, quantity: number = 1) => {
     if (product.stock <= 0) {
       toast.error("Producto sin stock");
       return;
@@ -450,6 +533,25 @@ export default function App() {
     
     if (currentQtyInCart + qtyToAdd > product.stock) {
       toast.error(`Stock insuficiente. Solo quedan ${product.stock - currentQtyInCart} unidades.`);
+      return;
+    }
+
+    if (selectedClientId) {
+      try {
+        await axios.post(`/api/clientes/${selectedClientId}/items`, {
+          producto_id: product.id,
+          cantidad: qtyToAdd,
+          precio_unitario: product.precio
+        });
+        fetchActiveClients();
+        toast.success(`${qtyToAdd} x ${product.nombre} añadido a la cuenta`, {
+          icon: '📝',
+          position: 'top-right',
+          duration: 1500
+        });
+      } catch (err) {
+        toast.error('Error al añadir a la cuenta');
+      }
       return;
     }
 
@@ -1091,7 +1193,7 @@ export default function App() {
                                 </div>
                                 <div className="space-y-1">
                                   <p className="text-xs text-muted-foreground uppercase font-bold tracking-widest">Base Inicial</p>
-                                  <p className="text-2xl font-black text-foreground">${activeSession.monto_inicial.toLocaleString()}</p>
+                                  <p className="text-2xl font-black text-foreground">${(activeSession.monto_inicial || 0).toLocaleString()}</p>
                                 </div>
                                 <div className="space-y-1">
                                   <p className="text-xs text-muted-foreground uppercase font-bold tracking-widest">Abierta el</p>
@@ -1281,9 +1383,93 @@ export default function App() {
               )}
 
               {activeTab === 'ventas' && (
-                <motion.div key="ventas" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="grid grid-cols-1 lg:grid-cols-12 gap-10 relative">
-                  <div className="lg:col-span-8 space-y-8">
-                    <div className="bg-card p-4 lg:p-6 rounded-3xl border border-border shadow-sm mb-6 flex items-center gap-4">
+                <motion.div key="ventas" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8">
+                  {/* Client Manager Section */}
+                  <div className="bg-card rounded-3xl border border-border shadow-sm overflow-hidden">
+                    <div className="bg-gradient-to-r from-primary/10 to-transparent p-6 lg:p-8 flex flex-col lg:flex-row items-center gap-6">
+                      <div className="flex-1 w-full">
+                        <form onSubmit={createClientTab} className="flex gap-3">
+                          <div className="relative flex-1">
+                            <Users className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground" size={20} />
+                            <Input 
+                              placeholder="Nombre del Cliente (Ej: Mesa 5, Juan Pérez...)" 
+                              className="h-14 pl-12 bg-white border-none rounded-2xl text-lg font-bold shadow-inner focus-visible:ring-primary"
+                              value={newClientName}
+                              onChange={(e) => setNewClientName(e.target.value)}
+                            />
+                          </div>
+                          <Button 
+                            type="submit"
+                            className="h-14 px-8 bg-black hover:bg-zinc-800 text-white font-black rounded-2xl shadow-xl transition-all active:scale-95"
+                          >
+                            ABRIR CUENTA
+                          </Button>
+                        </form>
+                      </div>
+
+                      <div className="flex items-center gap-2 overflow-x-auto pb-2 w-full lg:w-auto scrollbar-hide">
+                        {activeClients.length > 0 ? (
+                          activeClients.map(client => (
+                            <button
+                              key={client.id}
+                              onClick={() => setSelectedClientId(selectedClientId === client.id ? null : client.id)}
+                              className={`flex-shrink-0 h-14 min-w-[160px] px-5 rounded-2xl border-2 transition-all flex flex-col justify-center items-start relative ${
+                                selectedClientId === client.id 
+                                ? 'bg-primary border-primary text-white shadow-lg shadow-primary/30 scale-105 z-10' 
+                                : 'bg-white border-border text-foreground hover:border-primary/30 hover:bg-secondary/50'
+                              }`}
+                            >
+                              <span className="text-[10px] font-black uppercase tracking-widest opacity-80 mb-0.5">{client.nombre_cliente}</span>
+                              <span className="text-sm font-bold">${(client.total || 0).toLocaleString()}</span>
+                              {selectedClientId === client.id && (
+                                <div className="absolute -top-1 -right-1">
+                                  <div className="bg-green-400 w-3 h-3 rounded-full border-2 border-primary animate-pulse" />
+                                </div>
+                              )}
+                            </button>
+                          ))
+                        ) : (
+                          <div className="h-14 flex items-center px-6 text-sm font-medium text-muted-foreground italic bg-secondary/30 rounded-2xl border border-dashed border-border flex-1">
+                            No hay cuentas abiertas. Ingrese un nombre para empezar.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 relative">
+                    <div className="lg:col-span-8 space-y-8">
+                      {selectedClientId && (
+                        <div className="bg-primary/5 p-4 rounded-2xl border border-primary/20 flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center text-white shadow-lg">
+                              <ShoppingCart size={20} />
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-black text-primary uppercase tracking-widest">Añadiendo a cuenta de:</p>
+                              <p className="text-lg font-black text-foreground uppercase italic">{activeClients.find(c => c.id === selectedClientId)?.nombre_cliente}</p>
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                             <Button 
+                              variant="outline" 
+                              onClick={() => fetchClientResumen(selectedClientId)}
+                              className="h-12 px-6 rounded-xl border-primary text-primary font-bold hover:bg-primary hover:text-white"
+                            >
+                              PAGAR CUENTA
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              onClick={() => setSelectedClientId(null)}
+                              className="h-12 w-12 p-0 rounded-xl hover:bg-destructive/10 hover:text-destructive"
+                            >
+                              <X size={20} />
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                      
+                      <div className="bg-card p-4 lg:p-6 rounded-3xl border border-border shadow-sm mb-6 flex items-center gap-4">
                       <Search className="text-muted-foreground" size={20} />
                       <Input 
                         placeholder="Buscar producto a vender..." 
@@ -1440,8 +1626,9 @@ export default function App() {
                     </CardContent>
                   </Card>
                 </div>
-              </motion.div>
-              )}
+              </div>
+            </motion.div>
+          )}
 
               {activeTab === 'historial' && (
                 <motion.div key="historial" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8">
@@ -1927,9 +2114,14 @@ export default function App() {
             <div className="w-16 h-16 bg-destructive/10 rounded-full flex items-center justify-center mb-4 text-destructive">
               <AlertTriangle size={32} />
             </div>
-            <DialogTitle className="text-xl font-black uppercase tracking-tight">Limpiar Historial</DialogTitle>
-            <DialogDescription className="text-muted-foreground font-medium text-sm">
-              ¿Estás seguro que deseas eliminar <span className="font-bold text-foreground">TODO el historial de ventas</span>? Esta acción es irreversible.
+            <DialogTitle className="text-xl font-black uppercase tracking-tight flex items-center gap-2">
+              <Trash2 className="text-destructive" size={24} />
+              Confirmar Limpieza Total
+            </DialogTitle>
+            <DialogDescription className="text-muted-foreground font-medium text-sm pt-2">
+              ¿Estás seguro que deseas eliminar <span className="font-bold text-destructive underline decoration-2 underline-offset-4">TODAS</span> tus ventas registradas?
+              <br /><br />
+              Esta acción eliminará permanentemente el historial de <span className="text-foreground font-bold">{currentUser?.nombre_negocio || currentUser?.username}</span> y no se podrá recuperar.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="grid grid-cols-2 gap-4 mt-6">
@@ -2169,7 +2361,7 @@ export default function App() {
             </div>
             <DialogTitle className="text-xl font-black uppercase tracking-tight">Eliminar Gasto</DialogTitle>
             <DialogDescription className="text-muted-foreground font-medium text-sm">
-              ¿Deseas eliminar este registro de gasto de <span className="font-bold text-foreground">"${gastoToDelete?.monto.toLocaleString()}"</span>?
+              ¿Deseas eliminar este registro de gasto de <span className="font-bold text-foreground">"${(gastoToDelete?.monto || 0).toLocaleString()}"</span>?
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="grid grid-cols-2 gap-4 mt-6">
@@ -2180,8 +2372,92 @@ export default function App() {
       </Dialog>
 
       {/* Balance Report Modal */}
-      <Dialog open={isBalanceModalOpen} onOpenChange={setIsBalanceModalOpen}>
-        <DialogContent className="sm:max-w-[500px] rounded-[2.5rem] border-none shadow-2xl p-0 bg-white overflow-hidden">
+      <Dialog open={isClientPaymentModalOpen} onOpenChange={setIsClientPaymentModalOpen}>
+        <DialogContent className="max-w-2xl rounded-3xl p-0 overflow-hidden border-none shadow-2xl">
+          <DialogHeader className="p-8 lg:p-10 bg-gradient-to-br from-primary to-primary-dark text-white relative">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-white/20 rounded-2xl backdrop-blur-md">
+                   <Receipt size={28} />
+                </div>
+                <div>
+                   <DialogTitle className="text-2xl lg:text-3xl font-black uppercase tracking-tighter">Resumen de Cuenta</DialogTitle>
+                   <DialogDescription className="text-white/80 font-medium uppercase tracking-widest text-[10px]">
+                     Cliente: {activeClients.find(c => c.id === selectedClientId)?.nombre_cliente}
+                   </DialogDescription>
+                </div>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="p-8 lg:p-10 space-y-8 bg-card">
+            <div className="max-h-[300px] overflow-y-auto space-y-4 pr-2 custom-scrollbar">
+              {selectedClientItems.length > 0 ? (
+                selectedClientItems.map(item => (
+                  <div key={item.id} className="flex justify-between items-center bg-secondary/30 p-4 rounded-2xl border border-border/50">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-black uppercase tracking-tight text-foreground">{item.nombre}</span>
+                      <span className="text-[10px] text-muted-foreground font-bold uppercase">{item.cantidad} unidades × ${(item.precio_unitario || 0).toLocaleString()}</span>
+                    </div>
+                    <span className="text-lg font-black text-primary">${((item.cantidad || 0) * (item.precio_unitario || 0)).toLocaleString()}</span>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-10 text-muted-foreground italic">No hay productos en esta cuenta.</div>
+              )}
+            </div>
+
+            <div className="h-px bg-border/50" />
+
+            <div className="flex flex-col md:flex-row gap-6 items-end md:items-center justify-between">
+              <div className="space-y-3 w-full md:w-auto">
+                <Label className="text-[10px] uppercase font-black text-muted-foreground tracking-widest ml-1">Método de Pago</Label>
+                <div className="flex gap-2 p-1.5 bg-secondary/50 rounded-2xl border border-border/50">
+                  {['Efectivo', 'Tarjeta', 'Transferencia'].map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => setMetodoPago(m)}
+                      className={`flex-1 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                        metodoPago === m ? 'bg-white text-primary shadow-sm scale-[1.02]' : 'text-muted-foreground hover:bg-white/50'
+                      }`}
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="text-right w-full md:w-auto p-4 bg-primary/5 rounded-2xl border border-primary/20 min-w-[200px]">
+                 <p className="text-[10px] font-black text-primary uppercase tracking-[0.2em] mb-1">TOTAL A PAGAR</p>
+                 <p className="text-4xl font-black text-foreground tracking-tighter italic">
+                   ${(activeClients.find(c => c.id === selectedClientId)?.total || 0).toLocaleString()}
+                 </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Button 
+                variant="ghost" 
+                onClick={() => setIsClientPaymentModalOpen(false)}
+                className="h-14 rounded-2xl font-black uppercase tracking-widest text-muted-foreground hover:bg-secondary"
+              >
+                Cancelar
+              </Button>
+              <Button 
+                onClick={() => handlePayClientTab(metodoPago)}
+                disabled={isProcessingClientSale || selectedClientItems.length === 0}
+                className="h-14 bg-primary hover:bg-primary/90 text-white font-black rounded-2xl shadow-xl shadow-primary/20 transition-all hover:scale-105"
+              >
+                {isProcessingClientSale ? 'PROCESANDO...' : 'CONFIRMAR Y PAGAR'}
+                {!isProcessingClientSale && <ArrowRight className="ml-2" size={18} />}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+    <Dialog open={isBalanceModalOpen} onOpenChange={setIsBalanceModalOpen}>
+      <DialogContent className="sm:max-w-[500px] rounded-[2.5rem] border-none shadow-2xl p-0 bg-white overflow-hidden">
           <div className="p-8 lg:p-12 text-center space-y-8">
             <div className="mx-auto w-20 h-20 bg-primary/10 rounded-3xl flex items-center justify-center text-primary mb-6">
               <PiggyBank size={40} />
@@ -2197,7 +2473,7 @@ export default function App() {
                   <p className="text-[10px] font-black uppercase text-muted-foreground tracking-widest">💰 Total Ganado</p>
                   <p className="text-xs font-bold text-muted-foreground opacity-60">Ingresos por ventas</p>
                 </div>
-                <div className="text-2xl font-black text-green-600 tracking-tighter">${balance?.ingresos.toLocaleString()}</div>
+                <div className="text-2xl font-black text-green-600 tracking-tighter">${(balance?.ingresos || 0).toLocaleString()}</div>
               </div>
 
               <div className="bg-secondary/20 p-6 rounded-3xl border border-border flex justify-between items-center group hover:bg-secondary/40 transition-colors">
@@ -2205,7 +2481,7 @@ export default function App() {
                   <p className="text-[10px] font-black uppercase text-muted-foreground tracking-widest">💸 Total Gastado</p>
                   <p className="text-xs font-bold text-muted-foreground opacity-60">Egresos operativos</p>
                 </div>
-                <div className="text-2xl font-black text-destructive tracking-tighter">-${balance?.gastos.toLocaleString()}</div>
+                <div className="text-2xl font-black text-destructive tracking-tighter">-${(balance?.gastos || 0).toLocaleString()}</div>
               </div>
 
               <div className="bg-primary p-8 rounded-3xl border border-primary/20 flex justify-between items-center shadow-xl shadow-primary/20 group hover:scale-[1.02] transition-transform">
@@ -2213,7 +2489,7 @@ export default function App() {
                   <p className="text-[10px] font-black uppercase text-white/60 tracking-widest">📈 Utilidad Real</p>
                   <p className="text-xs font-bold text-white/80">Ganancia neta del mes</p>
                 </div>
-                <div className="text-3xl font-black text-white tracking-tighter">${balance?.utilidad.toLocaleString()}</div>
+                <div className="text-3xl font-black text-white tracking-tighter">${(balance?.utilidad || 0).toLocaleString()}</div>
               </div>
             </div>
 

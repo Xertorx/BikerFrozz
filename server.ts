@@ -211,6 +211,129 @@ async function startLocalServer() {
     }
   });
 
+  app.get('/api/clientes', async (req, res) => {
+    const userId = req.headers['x-user-id'];
+    try {
+      const { rows } = await pool.query(
+        `SELECT c.*, COALESCE(SUM(i.cantidad * i.precio_unitario), 0) as total 
+         FROM clientes_activos c 
+         LEFT JOIN items_cliente i ON c.id = i.cliente_id 
+         WHERE c.usuario_id = $1 AND c.activo = TRUE 
+         GROUP BY c.id ORDER BY c.fecha_creacion DESC`, 
+        [userId]
+      );
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/clientes', async (req, res) => {
+    const userId = req.headers['x-user-id'];
+    const { nombre } = req.body;
+    try {
+      const { rows } = await pool.query(
+        "INSERT INTO clientes_activos (usuario_id, nombre_cliente) VALUES ($1, $2) RETURNING *",
+        [userId, nombre]
+      );
+      res.json(rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/clientes/:id/items', async (req, res) => {
+    const { id } = req.params;
+    try {
+      const { rows } = await pool.query(
+        `SELECT i.*, p.nombre 
+         FROM items_cliente i 
+         JOIN productos p ON i.producto_id = p.id 
+         WHERE i.cliente_id = $1`,
+        [id]
+      );
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/clientes/:id/items', async (req, res) => {
+    const { id } = req.params;
+    const { producto_id, cantidad, precio_unitario } = req.body;
+    try {
+      // Verificar si ya existe el producto en la cuenta para sumar cantidad
+      const existing = await pool.query(
+        "SELECT * FROM items_cliente WHERE cliente_id = $1 AND producto_id = $2",
+        [id, producto_id]
+      );
+
+      if (existing.rows.length > 0) {
+        await pool.query(
+          "UPDATE items_cliente SET cantidad = cantidad + $1 WHERE id = $2",
+          [cantidad, existing.rows[0].id]
+        );
+      } else {
+        await pool.query(
+          "INSERT INTO items_cliente (cliente_id, producto_id, cantidad, precio_unitario) VALUES ($1, $2, $3, $4)",
+          [id, producto_id, cantidad, precio_unitario]
+        );
+      }
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/clientes/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+      await pool.query("UPDATE clientes_activos SET activo = FALSE WHERE id = $1", [id]);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/clientes/:id/vender', async (req, res) => {
+    const { id } = req.params;
+    const userId = req.headers['x-user-id'];
+    const { total, metodo_pago } = req.body;
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      
+      // 1. Crear la venta principal
+      const ventaRes = await client.query(
+        "INSERT INTO ventas (usuario_id, total, metodo_pago) VALUES ($1, $2, $3) RETURNING id",
+        [userId, total, metodo_pago]
+      );
+      const ventaId = ventaRes.rows[0].id;
+
+      // 2. Mover items de la cuenta a la venta
+      const itemsRes = await client.query("SELECT * FROM items_cliente WHERE cliente_id = $1", [id]);
+      for (const item of itemsRes.rows) {
+        await client.query(
+          "INSERT INTO detalle_ventas (venta_id, producto_id, cantidad, precio_unitario) VALUES ($1, $2, $3, $4)",
+          [ventaId, item.producto_id, item.cantidad, item.precio_unitario]
+        );
+        // Descontar stock
+        await client.query("UPDATE productos SET stock = stock - $1 WHERE id = $2", [item.cantidad, item.producto_id]);
+      }
+
+      // 3. Cerrar la cuenta del cliente
+      await client.query("UPDATE clientes_activos SET activo = FALSE WHERE id = $1", [id]);
+      
+      await client.query('COMMIT');
+      res.json({ success: true, ventaId });
+    } catch (err: any) {
+      await client.query('ROLLBACK');
+      res.status(500).json({ error: err.message });
+    } finally {
+      client.release();
+    }
+  });
+
   app.get('/api/ventas', async (req, res) => {
     const userId = req.headers['x-user-id'];
     try {
@@ -315,6 +438,8 @@ async function startLocalServer() {
 
   app.delete('/api/ventas', async (req, res) => {
     const userId = req.headers['x-user-id'];
+    if (!userId) return res.status(401).json({ error: 'Usuario no identificado' });
+
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -322,7 +447,7 @@ async function startLocalServer() {
       await client.query("DELETE FROM detalle_ventas WHERE venta_id IN (SELECT id FROM ventas WHERE usuario_id = $1)", [userId]);
       await client.query("DELETE FROM ventas WHERE usuario_id = $1", [userId]);
       await client.query('COMMIT');
-      res.json({ success: true });
+      res.json({ success: true, message: 'Historial de ventas eliminado para el usuario' });
     } catch (err: any) {
       await client.query('ROLLBACK');
       res.status(500).json({ error: err.message });
