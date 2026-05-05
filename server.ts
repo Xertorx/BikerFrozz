@@ -24,7 +24,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage });
 
-async function startLocalServer() {
+export async function createServer() {
   const app = express();
   app.use(express.json());
   const PORT = Number(process.env.PORT) || 3000;
@@ -533,6 +533,10 @@ async function startLocalServer() {
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Biker Frozz Development: http://localhost:${PORT}`);
   });
+
+  return app;
 }
 
-startLocalServer();
+if (!process.env.VERCEL) {
+  createServer();
+}
