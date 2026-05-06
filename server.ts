@@ -1,4 +1,5 @@
 import express from 'express';
+import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
@@ -31,6 +32,7 @@ const upload = multer({ storage: storage });
 
 export async function createServer() {
   const app = express();
+  app.use(cors());
   app.use(express.json());
   const PORT = Number(process.env.PORT) || 3000;
 
@@ -51,6 +53,10 @@ export async function createServer() {
   }
 
   // API Routes
+  app.get('/api/ping', (req, res) => {
+    res.json({ status: 'ok', message: 'pong', timestamp: new Date().toISOString() });
+  });
+
   app.get('/api/health', async (req, res) => {
     try {
       console.log('[API] Health check start');
@@ -556,6 +562,17 @@ export async function createServer() {
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Global Error Handler
+  app.use((err: any, req: any, res: any, next: any) => {
+    console.error('[EXPRESS_ERROR]', err);
+    if (!res.headersSent) {
+      res.status(500).json({ 
+        error: 'Unhandled Internal Error', 
+        message: err.message 
+      });
     }
   });
 

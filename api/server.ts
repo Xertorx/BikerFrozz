@@ -1,27 +1,38 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import serverless from 'serverless-http';
 import { createServer } from '../server';
 
-let cachedHandler: any = null;
+let cachedApp: any = null;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
-    if (!cachedHandler) {
-      console.log('Initializing Express app for Vercel...');
-      const app = await createServer();
-      cachedHandler = serverless(app);
+    if (!cachedApp) {
+      console.log('[BOOT] Initializing Express app...');
+      cachedApp = await createServer();
+      console.log('[BOOT] App initialized successfully');
     }
     
-    // Serverless-http expects a lambda-style event/context or standard Node req/res.
-    // Vercel handlers are already very close to Node req/res.
-    // However, serverless-http handles the promise mapping correctly.
-    return cachedHandler(req, res);
-  } catch (err: any) {
-    console.error('SERVERLESS_BOOT_ERROR:', err);
-    res.status(500).json({ 
-      error: 'Failed to boot server', 
-      details: err.message,
-      stack: err.stack 
+    // We wrap in a promise to ensure Vercel waits if it's not doing so automatically
+    // Although for Express on Vercel, simply calling cachedApp(req, res) usually suffices
+    // as Vercel's res object is a Node ServerResponse.
+    return new Promise((resolve, reject) => {
+      // res.on('finish') is a standard Node event that happens when the response is sent
+      res.on('finish', resolve);
+      res.on('error', reject);
+      
+      try {
+        cachedApp(req, res);
+      } catch (e) {
+        reject(e);
+      }
     });
+  } catch (err: any) {
+    console.error('[BOOT_ERROR] Critical failure:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ 
+        error: 'Critical Server Error', 
+        message: err.message,
+        env: process.env.VERCEL ? 'vercel' : 'local'
+      });
+    }
   }
 }
