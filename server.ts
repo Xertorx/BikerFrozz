@@ -2,13 +2,16 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
-import { createServer as createViteServer } from 'vite';
 import { pool, initDb } from './api/_db';
 
-// Ensure uploads directory exists
+// Ensure uploads directory exists (use /tmp for serverless if needed, but here we just try)
 const uploadsDir = path.join(process.cwd(), 'uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
+try {
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+} catch (e) {
+  console.warn('Could not create uploads directory, might be in a read-only environment:', e);
 }
 
 // Multer configuration
@@ -32,14 +35,18 @@ export async function createServer() {
   // Serve static uploads
   app.use('/uploads', express.static(uploadsDir));
 
-  // Sync DB
-  await initDb();
+  // Sync DB (Lazy and safe)
+  try {
+    await initDb();
+  } catch (err) {
+    console.error('Database migration failed:', err);
+  }
 
-  // API Routes (Manual replication of /api lambda logic)
+  // API Routes
   app.get('/api/health', async (req, res) => {
     try {
       await pool.query('SELECT 1');
-      res.json({ database: 'connected', status: 'ok' });
+      res.json({ database: 'connected', status: 'ok', env: process.env.VERCEL ? 'vercel' : 'local' });
     } catch (err: any) {
       res.status(500).json({ database: 'error', error: err.message });
     }
@@ -516,7 +523,8 @@ export async function createServer() {
     }
   });
 
-  if (process.env.NODE_ENV !== 'production') {
+  if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
@@ -524,15 +532,19 @@ export async function createServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+    if (fs.existsSync(distPath)) {
+      app.use(express.static(distPath));
+      app.get('*', (req, res) => {
+        res.sendFile(path.join(distPath, 'index.html'));
+      });
+    }
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Biker Frozz Development: http://localhost:${PORT}`);
-  });
+  if (!process.env.VERCEL) {
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`Biker Frozz Development: http://localhost:${PORT}`);
+    });
+  }
 
   return app;
 }
