@@ -3,7 +3,7 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
-import { pool, initDb } from './api/_db';
+import { pool, initDb } from './api/_db.js';
 
 // Ensure uploads directory exists (use /tmp for serverless if needed, but here we just try)
 const uploadsDir = path.join(process.cwd(), 'uploads');
