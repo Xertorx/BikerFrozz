@@ -14,16 +14,18 @@ try {
   console.warn('Could not create uploads directory, might be in a read-only environment:', e);
 }
 
-// Multer configuration
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, 'uploads/');
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + '-' + file.originalname);
-  }
-});
+// Multer configuration: Use memory storage on Vercel/Production to avoid read-only filesystem issues
+const storage = process.env.VERCEL 
+  ? multer.memoryStorage() 
+  : multer.diskStorage({
+      destination: (req, file, cb) => {
+        cb(null, 'uploads/');
+      },
+      filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, uniqueSuffix + '-' + file.originalname);
+      }
+    });
 
 const upload = multer({ storage: storage });
 
@@ -50,15 +52,33 @@ export async function createServer() {
   // API Routes
   app.get('/api/health', async (req, res) => {
     try {
-      await pool.query('SELECT 1');
+      console.log('Health check requested...');
+      if (!process.env.DATABASE_URL) {
+        return res.json({ status: 'warning', message: 'DATABASE_URL missing', env: 'vercel' });
+      }
+      const p = pool;
+      await p.query('SELECT 1');
       res.json({ database: 'connected', status: 'ok', env: process.env.VERCEL ? 'vercel' : 'local' });
     } catch (err: any) {
-      res.status(500).json({ database: 'error', error: err.message });
+      console.error('Health check database error:', err);
+      res.status(500).json({ 
+        database: 'error', 
+        error: err.message,
+        hint: 'Check if your database has SSL enabled or if credentials are correct.'
+      });
     }
   });
 
   app.post('/api/upload', upload.single('image'), (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    
+    if (process.env.VERCEL && req.file.buffer) {
+      // In a real vercel app you'd upload this to S3/Cloudinary
+      // For now, we'll return a base64 or just indicate it's in memory
+      const base64 = req.file.buffer.toString('base64');
+      return res.json({ imageUrl: `data:${req.file.mimetype};base64,${base64}` });
+    }
+    
     const imageUrl = `/uploads/${req.file.filename}`;
     res.json({ imageUrl });
   });

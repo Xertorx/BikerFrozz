@@ -1,22 +1,48 @@
 import { Pool } from 'pg';
 
 // Configuración mínima y robusta para Vercel
-const connectionString = process.env.DATABASE_URL;
+// Lazy pool initialization to avoid crashing on boot if env vars are missing
+let _pool: Pool | null = null;
 
-export const pool = new Pool({
-  connectionString: connectionString,
-  ssl: { rejectUnauthorized: false },
-  max: 1,
-  connectionTimeoutMillis: 15000, // Darle más tiempo para despertar
-  idleTimeoutMillis: 30000,
+export const getPool = () => {
+  if (!_pool) {
+    if (!process.env.DATABASE_URL) {
+      console.error('CRITICAL: DATABASE_URL is missing in environment variables');
+      // Return a dummy pool or throw a descriptive error when used
+    }
+    _pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false },
+      max: 5, // A bit more for concurrency but not too much
+      connectionTimeoutMillis: 10000,
+      idleTimeoutMillis: 30000,
+    });
+    
+    _pool.on('error', (err) => {
+      console.error('Unexpected error on idle client', err);
+    });
+  }
+  return _pool;
+};
+
+// For compatibility with existing imports
+export const pool = new Proxy({} as Pool, {
+  get: (target, prop: keyof Pool) => {
+    const p = getPool();
+    const val = p[prop];
+    return typeof val === 'function' ? val.bind(p) : val;
+  }
 });
 
 export async function initDb() {
+  const connectionString = process.env.DATABASE_URL;
   if (!connectionString) {
-    throw new Error('DATABASE_URL no configurada en las variables de entorno de Vercel');
+    console.warn('DATABASE_URL no configurada, saltando initDb');
+    return;
   }
   
-  const client = await pool.connect();
+  const currentPool = getPool();
+  const client = await currentPool.connect();
   try {
     // Migraciones en orden correcto de dependencias
     await client.query(`
