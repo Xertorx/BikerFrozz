@@ -6,16 +6,20 @@ let _pool: Pool | null = null;
 
 export const getPool = () => {
   if (!_pool) {
-    if (!process.env.DATABASE_URL) {
+    const connectionString = process.env.DATABASE_URL;
+    if (!connectionString) {
       console.error('CRITICAL: DATABASE_URL is missing in environment variables');
-      // Return a dummy pool or throw a descriptive error when used
+      // We still create the pool to avoid breaking imports, but it will fail on query
     }
+    
+    console.log('Creating new Postgres Pool...');
     _pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: { rejectUnauthorized: false },
-      max: 5, // A bit more for concurrency but not too much
+      connectionString: connectionString,
+      ssl: connectionString?.includes('localhost') ? false : { rejectUnauthorized: false },
+      max: 5,
       connectionTimeoutMillis: 10000,
       idleTimeoutMillis: 30000,
+      maxUses: 7500, // Recreate connection after some uses to avoid leaks
     });
     
     _pool.on('error', (err) => {

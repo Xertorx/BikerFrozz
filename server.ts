@@ -38,29 +38,40 @@ export async function createServer() {
   app.use('/uploads', express.static(uploadsDir));
 
   // Sync DB (Lazy and safe)
-  try {
-    if (!process.env.DATABASE_URL) {
-      console.warn('⚠️ DATABASE_URL no está definida. Las peticiones a la API fallarán.');
-    } else {
-      console.log('✅ DATABASE_URL detectada. Iniciando migración...');
-      await initDb();
-    }
-  } catch (err) {
-    console.error('❌ Error en la migración de base de datos:', err);
+  if (process.env.DATABASE_URL) {
+    // We don't await initDb here to avoid blocking the cold start response
+    // Peticiones posteriores funcionarán una vez termine la migración
+    initDb().then(() => {
+      console.log('✅ Migración de base de datos completada en segundo plano');
+    }).catch(err => {
+      console.error('❌ Error en la migración de base de datos:', err);
+    });
+  } else {
+    console.warn('⚠️ DATABASE_URL no está definida. Las peticiones a la API fallarán.');
   }
 
   // API Routes
   app.get('/api/health', async (req, res) => {
     try {
-      console.log('Health check requested...');
+      console.log('[API] Health check start');
       if (!process.env.DATABASE_URL) {
         return res.json({ status: 'warning', message: 'DATABASE_URL missing', env: 'vercel' });
       }
+      
       const p = pool;
+      const start = Date.now();
       await p.query('SELECT 1');
-      res.json({ database: 'connected', status: 'ok', env: process.env.VERCEL ? 'vercel' : 'local' });
+      const duration = Date.now() - start;
+      
+      console.log(`[API] Health check success (${duration}ms)`);
+      res.json({ 
+        database: 'connected', 
+        status: 'ok', 
+        env: process.env.VERCEL ? 'vercel' : 'local',
+        latency: duration
+      });
     } catch (err: any) {
-      console.error('Health check database error:', err);
+      console.error('[API] Health check error:', err);
       res.status(500).json({ 
         database: 'error', 
         error: err.message,
