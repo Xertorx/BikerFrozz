@@ -196,9 +196,9 @@ export async function createServer() {
 
   app.post('/api/productos', async (req, res) => {
     const userId = req.headers['x-user-id'];
-    const { nombre, precio, stock, imagen_url } = req.body;
+    const { nombre, precio, stock, imagen_url, mostrar_en_pos } = req.body;
     try {
-      const { rows } = await pool.query("INSERT INTO productos (nombre, precio, stock, imagen_url, usuario_id) VALUES ($1, $2, $3, $4, $5) RETURNING id", [nombre, precio, stock, imagen_url, userId]);
+      const { rows } = await pool.query("INSERT INTO productos (nombre, precio, stock, imagen_url, usuario_id, mostrar_en_pos) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id", [nombre, precio, stock, imagen_url, userId, mostrar_en_pos !== undefined ? mostrar_en_pos : true]);
       res.json({ id: rows[0].id });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -208,9 +208,9 @@ export async function createServer() {
   app.put('/api/productos', async (req, res) => {
     const { id } = req.query;
     const userId = req.headers['x-user-id'];
-    const { nombre, precio, stock, imagen_url } = req.body;
+    const { nombre, precio, stock, imagen_url, mostrar_en_pos } = req.body;
     try {
-      await pool.query("UPDATE productos SET nombre = $1, precio = $2, stock = $3, imagen_url = $4 WHERE id = $5 AND usuario_id = $6", [nombre, precio, stock, imagen_url, id, userId]);
+      await pool.query("UPDATE productos SET nombre = $1, precio = $2, stock = $3, imagen_url = $4, mostrar_en_pos = $5 WHERE id = $6 AND usuario_id = $7", [nombre, precio, stock, imagen_url, mostrar_en_pos !== undefined ? mostrar_en_pos : true, id, userId]);
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -509,7 +509,13 @@ export async function createServer() {
   app.get('/api/gastos', async (req, res) => {
     const userId = req.headers['x-user-id'];
     try {
-      const { rows } = await pool.query("SELECT * FROM gastos WHERE usuario_id = $1 ORDER BY fecha DESC", [userId]);
+      const { rows } = await pool.query(`
+        SELECT g.*, p.nombre as producto_nombre 
+        FROM gastos g 
+        LEFT JOIN productos p ON g.producto_id = p.id 
+        WHERE g.usuario_id = $1 
+        ORDER BY g.fecha DESC
+      `, [userId]);
       res.json(rows);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -517,13 +523,32 @@ export async function createServer() {
   });
 
   app.post('/api/gastos', async (req, res) => {
-    const { categoria, monto, descripcion } = req.body;
+    const { categoria, monto, descripcion, producto_id, cantidad } = req.body;
     const userId = req.headers['x-user-id'];
+    const client = await pool.connect();
     try {
-      await pool.query("INSERT INTO gastos (categoria, monto, descripcion, usuario_id) VALUES ($1, $2, $3, $4)", [categoria, monto, descripcion, userId]);
+      await client.query('BEGIN');
+      
+      await client.query(
+        "INSERT INTO gastos (categoria, monto, descripcion, usuario_id, producto_id, cantidad) VALUES ($1, $2, $3, $4, $5, $6)", 
+        [categoria, monto, descripcion, userId, producto_id || null, cantidad || null]
+      );
+
+      if (producto_id && cantidad) {
+        // Al ser un gasto de compra de inventario, aumentamos el stock
+        await client.query(
+          "UPDATE productos SET stock = stock + $1 WHERE id = $2 AND usuario_id = $3",
+          [cantidad, producto_id, userId]
+        );
+      }
+
+      await client.query('COMMIT');
       res.json({ success: true });
     } catch (err: any) {
+      await client.query('ROLLBACK');
       res.status(500).json({ error: err.message });
+    } finally {
+      client.release();
     }
   });
 

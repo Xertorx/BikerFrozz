@@ -55,6 +55,13 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
 import { 
+  Select, 
+  SelectContent, 
+  SelectItem, 
+  SelectTrigger, 
+  SelectValue 
+} from "@/components/ui/select";
+import { 
   Dialog, 
   DialogContent, 
   DialogHeader, 
@@ -64,6 +71,7 @@ import {
   DialogTrigger
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 
 // Types
 interface Product {
@@ -72,6 +80,7 @@ interface Product {
   precio: number;
   stock: number;
   imagen_url?: string;
+  mostrar_en_pos?: boolean;
 }
 
 interface Sale {
@@ -100,6 +109,9 @@ interface Gasto {
   categoria: string;
   monto: number;
   descripcion: string;
+  producto_id?: number;
+  cantidad?: number;
+  producto_nombre?: string;
 }
 
 interface Balance {
@@ -188,7 +200,8 @@ export default function App() {
   const [newProduct, setNewProduct] = useState<Partial<Product>>({
     nombre: '',
     precio: 0,
-    stock: 0
+    stock: 0,
+    mostrar_en_pos: true
   });
 
   // Stats
@@ -204,7 +217,9 @@ export default function App() {
   const [newGasto, setNewGasto] = useState<Partial<Gasto>>({
     categoria: '',
     monto: 0,
-    descripcion: ''
+    descripcion: '',
+    producto_id: undefined,
+    cantidad: 1
   });
 
   // Cash Session State
@@ -467,8 +482,14 @@ export default function App() {
       await axios.post('/api/gastos', newGasto);
       toast.success("Gasto registrado");
       setIsGastosModalOpen(false);
-      setNewGasto({ categoria: '', monto: 0, descripcion: '' });
+      
+      const hasInventoryUpdate = !!(newGasto.producto_id && newGasto.cantidad);
+      setNewGasto({ categoria: '', monto: 0, descripcion: '', producto_id: undefined, cantidad: 1 });
       fetchGastos();
+      
+      if (hasInventoryUpdate) {
+        fetchProducts();
+      }
     } catch (err) {
       toast.error("Error al registrar gasto");
     }
@@ -684,7 +705,11 @@ export default function App() {
     }
 
     try {
-      const productData = { ...newProduct, imagen_url: DEFAULT_PRODUCT_IMAGE };
+      const productData = { 
+        ...newProduct, 
+        imagen_url: DEFAULT_PRODUCT_IMAGE,
+        mostrar_en_pos: newProduct.mostrar_en_pos ?? true
+      };
 
       if (editingProduct) {
         await axios.put(`/api/productos?id=${editingProduct.id}`, productData);
@@ -734,7 +759,7 @@ export default function App() {
 
   const openAddModal = () => {
     setEditingProduct(null);
-    setNewProduct({ nombre: '', precio: 0, stock: 0 });
+    setNewProduct({ nombre: '', precio: 0, stock: 0, mostrar_en_pos: true });
     setIsProductModalOpen(true);
   };
 
@@ -1363,9 +1388,16 @@ export default function App() {
                             <TableCell className="px-4 lg:px-10 py-4 lg:py-8 font-black text-primary text-base lg:text-2xl tracking-tighter">${p.precio.toLocaleString()}</TableCell>
                             <TableCell className="px-4 lg:px-10 py-3 lg:py-6 font-medium text-foreground text-xs lg:text-sm">{p.stock} <span className="hidden lg:inline">UNIDADES</span></TableCell>
                             <TableCell className="px-4 lg:px-10 py-3 lg:py-6">
-                              <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider ${p.stock > 10 ? 'bg-green-500/10 text-green-600' : p.stock > 0 ? 'bg-amber-500/10 text-amber-600' : 'bg-destructive/10 text-destructive'}`}>
-                                {p.stock > 10 ? 'ESTABLE' : p.stock > 0 ? 'REPO' : 'SIN'}
-                              </span>
+                              <div className="flex flex-col gap-1">
+                                <span className={`w-fit px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider ${p.stock > 10 ? 'bg-green-500/10 text-green-600' : p.stock > 0 ? 'bg-amber-500/10 text-amber-600' : 'bg-destructive/10 text-destructive'}`}>
+                                  {p.stock > 10 ? 'ESTABLE' : p.stock > 0 ? 'REPO' : 'SIN'}
+                                </span>
+                                {p.mostrar_en_pos === false && (
+                                  <span className="w-fit px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider bg-zinc-100 text-zinc-500 border border-zinc-200">
+                                    INVENTARIO SOLAMENTE
+                                  </span>
+                                )}
+                              </div>
                             </TableCell>
                             <TableCell className="px-4 lg:px-10 py-3 lg:py-6 text-right">
                               <div className="flex items-center justify-end space-x-3">
@@ -1481,7 +1513,7 @@ export default function App() {
                       />
                     </div>
                     <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3 lg:gap-4">
-                      {products.filter(p => (p.stock > 0 || true) && p.nombre.toLowerCase().includes(searchTerm.toLowerCase())).map(p => {
+                      {products.filter(p => p.mostrar_en_pos !== false && (p.stock > 0 || true) && p.nombre.toLowerCase().includes(searchTerm.toLowerCase())).map(p => {
                         const currentQty = posQuantities[p.id] || 1;
                         return (
                           <Card 
@@ -1794,9 +1826,9 @@ export default function App() {
                           <BarChart data={productSales} layout="vertical">
                             <CartesianGrid strokeDasharray="0" stroke="#f1f3f5" horizontal={false} />
                             <XAxis type="number" stroke="#94a3b8" fontSize={10} axisLine={false} tickLine={false} />
-                            <YAxis dataKey="nombre" type="category" stroke="#1a1a1a" fontSize={10} width={80} lg:width={140} axisLine={false} tickLine={false} className="font-bold uppercase tracking-tighter" />
+                            <YAxis dataKey="nombre" type="category" stroke="#1a1a1a" fontSize={10} width={140} axisLine={false} tickLine={false} className="font-bold uppercase tracking-tighter" />
                             <Tooltip contentStyle={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
-                            <Bar dataKey="total_vendido" fill="#ff4e00" radius={[0, 10, 10, 0]} barSize={20} lg:barSize={30} />
+                            <Bar dataKey="total_vendido" fill="#ff4e00" radius={[0, 10, 10, 0]} barSize={30} />
                           </BarChart>
                         </ResponsiveContainer>
                       </CardContent>
@@ -1816,10 +1848,8 @@ export default function App() {
                                 nameKey="nombre"
                                 cx="50%"
                                 cy="50%"
-                                innerRadius={60}
-                                outerRadius={80}
-                                lg:innerRadius={80}
-                                lg:outerRadius={110}
+                                innerRadius={80}
+                                outerRadius={110}
                                 paddingAngle={6}
                               >
                                 {productSales.map((entry, index) => (
@@ -1999,7 +2029,17 @@ export default function App() {
                                 <TableCell className="px-4 lg:px-10 py-4 lg:py-6 text-xs lg:text-sm">
                                   <Badge variant="outline" className="bg-secondary/50 font-black text-[9px] lg:text-[10px] uppercase">{g.categoria}</Badge>
                                 </TableCell>
-                                <TableCell className="px-4 lg:px-10 py-4 lg:py-6 text-xs lg:text-sm font-medium text-muted-foreground max-w-[200px] truncate">{g.descripcion}</TableCell>
+                                <TableCell className="px-4 lg:px-10 py-4 lg:py-6 text-xs lg:text-sm font-medium text-muted-foreground max-w-[200px]">
+                                  <div className="flex flex-col gap-1">
+                                    <span className="truncate">{g.descripcion}</span>
+                                    {g.producto_nombre && (
+                                      <div className="flex items-center gap-1.5 text-[9px] font-black text-primary uppercase tracking-widest mt-1">
+                                        <Box size={10} />
+                                        <span>Stock: +{g.cantidad} {g.producto_nombre}</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                </TableCell>
                                 <TableCell className="px-4 lg:px-10 py-4 lg:py-6 font-black text-destructive text-sm lg:text-lg tracking-tighter">-${g.monto.toLocaleString()}</TableCell>
                                 <TableCell className="px-4 lg:px-10 py-4 lg:py-6 text-center">
                                   <Button 
@@ -2064,6 +2104,25 @@ export default function App() {
                   value={newProduct.stock}
                   onChange={(e) => setNewProduct({...newProduct, stock: Number(e.target.value)})}
                 />
+              </div>
+            </div>
+            <div className="flex items-center space-x-3 bg-secondary/30 p-4 rounded-xl border border-border/50">
+              <Checkbox 
+                id="mostrar_en_pos" 
+                checked={newProduct.mostrar_en_pos}
+                onCheckedChange={(checked) => setNewProduct({...newProduct, mostrar_en_pos: !!checked})}
+                className="border-primary data-[state=checked]:bg-primary rounded-md"
+              />
+              <div className="grid gap-1.5 leading-none">
+                <label 
+                  htmlFor="mostrar_en_pos" 
+                  className="text-sm font-bold uppercase tracking-tight cursor-pointer"
+                >
+                  Mostrar en Punto de Venta
+                </label>
+                <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-widest">
+                  Activa esta opción para que el producto sea visible al vender
+                </p>
               </div>
             </div>
           </div>
@@ -2313,7 +2372,7 @@ export default function App() {
               Ingrese los detalles del gasto operativo de hoy.
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-6 py-8">
+          <div className="grid gap-6 py-4">
             <div className="space-y-2">
               <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest ml-1">Categoría</Label>
               <Input 
@@ -2333,8 +2392,66 @@ export default function App() {
                 onChange={(e) => setNewGasto({...newGasto, monto: Number(e.target.value)})}
               />
             </div>
+
+            <div className="pt-2 border-t border-dashed border-border/50 space-y-4">
+               <div className="flex items-center gap-2 mb-2">
+                 <Box size={14} className="text-primary" />
+                 <span className="text-[10px] uppercase font-black text-primary tracking-widest">Vincular a Inventario (Opcional)</span>
+               </div>
+               
+               <div className="space-y-2">
+                 <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest ml-1">Producto</Label>
+                 <Select 
+                   value={newGasto.producto_id?.toString() || "none"} 
+                   onValueChange={(val) => {
+                     if (val === "none") {
+                       setNewGasto({...newGasto, producto_id: undefined});
+                     } else {
+                       const prod = products.find(p => p.id.toString() === val);
+                       setNewGasto({
+                         ...newGasto, 
+                         producto_id: Number(val),
+                         categoria: newGasto.categoria || 'Inventario',
+                         descripcion: newGasto.descripcion || `Compra de ${prod?.nombre}`
+                       });
+                     }
+                   }}
+                 >
+                   <SelectTrigger className="h-12 bg-secondary/50 border-border rounded-xl font-medium">
+                     <SelectValue placeholder="No vincular a producto" />
+                   </SelectTrigger>
+                   <SelectContent className="rounded-xl border-border bg-card">
+                     <SelectItem value="none">No vincular a producto</SelectItem>
+                     {products.map(p => (
+                       <SelectItem key={p.id} value={p.id.toString()}>{p.nombre}</SelectItem>
+                     ))}
+                   </SelectContent>
+                 </Select>
+               </div>
+
+               {newGasto.producto_id && (
+                 <motion.div 
+                   initial={{ opacity: 0, y: -10 }} 
+                   animate={{ opacity: 1, y: 0 }}
+                   className="space-y-2"
+                 >
+                   <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest ml-1">Cantidad a Agregar</Label>
+                   <Input 
+                     type="number"
+                     placeholder="1" 
+                     className="h-12 bg-secondary/50 border-border rounded-xl font-medium" 
+                     value={newGasto.cantidad || ''}
+                     onChange={(e) => setNewGasto({...newGasto, cantidad: Number(e.target.value)})}
+                   />
+                   <p className="text-[9px] text-primary font-bold uppercase tracking-widest ml-1 mt-1">
+                     * Esto sumará {newGasto.cantidad || 0} al stock actual
+                   </p>
+                 </motion.div>
+               )}
+            </div>
+
             <div className="space-y-2">
-              <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest ml-1">Descripción (Opcional)</Label>
+              <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest ml-1">Descripción</Label>
               <Input 
                 placeholder="Detalles adicionales..." 
                 className="h-12 bg-secondary/50 border-border rounded-xl font-medium" 

@@ -64,6 +64,7 @@ export async function initDb() {
         stock INTEGER, 
         imagen_url TEXT, 
         activo BOOLEAN DEFAULT TRUE, 
+        mostrar_en_pos BOOLEAN DEFAULT TRUE,
         usuario_id INTEGER REFERENCES usuarios(id)
       );
 
@@ -119,6 +120,8 @@ export async function initDb() {
         categoria TEXT, 
         monto REAL, 
         descripcion TEXT, 
+        producto_id INTEGER REFERENCES productos(id),
+        cantidad INTEGER,
         usuario_id INTEGER REFERENCES usuarios(id)
       );
     `);
@@ -136,9 +139,10 @@ export async function initDb() {
           ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS nombre_negocio TEXT;
         END IF;
 
-        -- Productos: agregar usuario_id
+        -- Productos: agregar usuario_id y mostrar_en_pos
         IF EXISTS (SELECT FROM pg_tables WHERE tablename = 'productos') THEN
           ALTER TABLE productos ADD COLUMN IF NOT EXISTS usuario_id INTEGER REFERENCES usuarios(id);
+          ALTER TABLE productos ADD COLUMN IF NOT EXISTS mostrar_en_pos BOOLEAN DEFAULT TRUE;
         END IF;
 
         -- Ventas: agregar usuario_id y sesion_id
@@ -147,9 +151,11 @@ export async function initDb() {
           ALTER TABLE ventas ADD COLUMN IF NOT EXISTS sesion_id INTEGER REFERENCES sesiones_caja(id);
         END IF;
 
-        -- Gastos: agregar usuario_id
+        -- Gastos: agregar usuario_id, producto_id y cantidad
         IF EXISTS (SELECT FROM pg_tables WHERE tablename = 'gastos') THEN
           ALTER TABLE gastos ADD COLUMN IF NOT EXISTS usuario_id INTEGER REFERENCES usuarios(id);
+          ALTER TABLE gastos ADD COLUMN IF NOT EXISTS producto_id INTEGER REFERENCES productos(id);
+          ALTER TABLE gastos ADD COLUMN IF NOT EXISTS cantidad INTEGER;
         END IF;
       END $$;
     `);
