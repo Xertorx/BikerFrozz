@@ -37,9 +37,14 @@ export async function createServer() {
 
   // Sync DB (Lazy and safe)
   try {
-    await initDb();
+    if (!process.env.DATABASE_URL) {
+      console.warn('⚠️ DATABASE_URL no está definida. Las peticiones a la API fallarán.');
+    } else {
+      console.log('✅ DATABASE_URL detectada. Iniciando migración...');
+      await initDb();
+    }
   } catch (err) {
-    console.error('Database migration failed:', err);
+    console.error('❌ Error en la migración de base de datos:', err);
   }
 
   // API Routes
